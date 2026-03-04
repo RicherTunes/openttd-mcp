@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__openttd__get_towns",
+      "mcp__openttd__get_map_size",
+      "mcp__openttd__get_companies",
+      "mcp__openttd__connect_to_server",
+      "mcp__openttd__find_bus_stop_spots",
+      "mcp__openttd__find_depot_spots",
+      "mcp__openttd__get_engines"
+    ]
+  }
+}

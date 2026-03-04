@@ -1,0 +1,25 @@
+{
+  "name": "openttd-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for controlling OpenTTD - build transport networks, manage vehicles, and play the game via Claude",
+  "type": "module",
+  "bin": {
+    "openttd-mcp": "./build/index.js",
+    "openttd-bridge": "./build/bridge-server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "bridge": "node build/bridge-server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "libsodium-wrappers": "^0.8.2",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

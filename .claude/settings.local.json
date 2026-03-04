@@ -7,7 +7,16 @@
       "mcp__openttd__connect_to_server",
       "mcp__openttd__find_bus_stop_spots",
       "mcp__openttd__find_depot_spots",
-      "mcp__openttd__get_engines"
+      "mcp__openttd__get_engines",
+      "mcp__openttd__build_road_stop",
+      "mcp__openttd__build_road_depot",
+      "mcp__openttd__build_road_line",
+      "mcp__openttd__build_road",
+      "mcp__openttd__get_stations",
+      "mcp__openttd__buy_vehicle",
+      "mcp__openttd__add_vehicle_order",
+      "mcp__openttd__start_vehicle",
+      "mcp__openttd__clone_vehicle"
     ]
   }
 }

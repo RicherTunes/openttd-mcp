@@ -21,6 +21,10 @@ class ClaudeMCP extends GSController {
   // Each item ~80-150 bytes JSON, keep chunks under ~1200 bytes to be safe
   CHUNK_SIZE = 10;
 
+  // Yield every N iterations to stay under OpenTTD's 10,000 opcode/tick budget.
+  // Each loop body is ~20-40 opcodes, so 150 iters ≈ 3,000-6,000 ops (safe).
+  YIELD_INTERVAL = 150;
+
   function Start() {
     this.log_level = this.GetSetting("log_level");
     this.Log(1, "ClaudeMCP GameScript v3 started");
@@ -798,21 +802,31 @@ class ClaudeMCP extends GSController {
 
     local eng_list = GSEngineList(vt);
     foreach (eng_id, _ in eng_list) {
-      if (!GSEngine.IsBuildable(eng_id)) continue;
+      try {
+        if (!GSEngine.IsBuildable(eng_id)) continue;
 
-      engines.append({
-        id = eng_id,
-        name = GSEngine.GetName(eng_id),
-        cargo_type = GSEngine.GetCargoType(eng_id),
-        capacity = GSEngine.GetCapacity(eng_id),
-        max_speed = GSEngine.GetMaxSpeed(eng_id),
-        price = GSEngine.GetPrice(eng_id),
-        running_cost = GSEngine.GetRunningCost(eng_id),
-        power = GSEngine.GetPower(eng_id),
-        weight = GSEngine.GetWeight(eng_id),
-        reliability = GSEngine.GetReliability(eng_id),
-        is_wagon = GSEngine.IsWagon(eng_id)
-      });
+        local info = {
+          id = eng_id,
+          name = GSEngine.GetName(eng_id),
+          cargo_type = GSEngine.GetCargoType(eng_id),
+          capacity = GSEngine.GetCapacity(eng_id),
+          max_speed = GSEngine.GetMaxSpeed(eng_id),
+          price = GSEngine.GetPrice(eng_id),
+          running_cost = GSEngine.GetRunningCost(eng_id),
+          reliability = GSEngine.GetReliability(eng_id)
+        };
+
+        // Power, weight, is_wagon are only valid for rail vehicles
+        if (vt == GSVehicle.VT_RAIL) {
+          info.rawset("power", GSEngine.GetPower(eng_id));
+          info.rawset("weight", GSEngine.GetWeight(eng_id));
+          info.rawset("is_wagon", GSEngine.IsWagon(eng_id));
+        }
+
+        engines.append(info);
+      } catch (e) {
+        this.Log(1, "Error reading engine " + eng_id + ": " + e);
+      }
     }
 
     return { success = true, result = engines };
@@ -919,6 +933,7 @@ class ClaudeMCP extends GSController {
     local roads = [];
     local buildings = [];
     local water = [];
+    local ops = 0;
 
     for (local dy = -radius; dy <= radius; dy++) {
       for (local dx = -radius; dx <= radius; dx++) {
@@ -938,9 +953,10 @@ class ClaudeMCP extends GSController {
             slope = GSTile.GetSlope(tile)
           });
         } else {
-          // Not water, not road, not buildable = building/structure
           buildings.append({ x = x, y = y });
         }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
     }
 
@@ -979,7 +995,9 @@ class ClaudeMCP extends GSController {
     local cy = GSMap.GetTileY(loc);
 
     local spots = [];
+    local ops = 0;
 
+    // Scan tiles — yield periodically to avoid opcode budget overflow
     for (local dy = -radius; dy <= radius; dy++) {
       for (local dx = -radius; dx <= radius; dx++) {
         local x = cx + dx;
@@ -991,31 +1009,31 @@ class ClaudeMCP extends GSController {
         local adj = this.GetAdjacentRoads(x, y);
         if (adj.len() == 0) continue;
 
-        local dist = abs(dx) + abs(dy);  // Manhattan distance
-        spots.append({
+        local dist = abs(dx) + abs(dy);
+        local spot = {
           x = x, y = y,
           distance = dist,
           adjacent_road_x = adj[0].nx,
           adjacent_road_y = adj[0].ny,
           adjacent_road_count = adj.len()
-        });
-      }
-    }
+        };
 
-    // Sort by distance (insertion sort - Squirrel has no built-in sort)
-    for (local i = 1; i < spots.len(); i++) {
-      local key = spots[i];
-      local j = i - 1;
-      while (j >= 0 && spots[j].distance > key.distance) {
-        spots[j + 1] = spots[j];
-        j--;
-      }
-      spots[j + 1] = key;
-    }
+        // Maintain a sorted top-N list instead of collecting all + sorting
+        if (spots.len() < max_results) {
+          spots.append(spot);
+        } else if (dist < spots[spots.len() - 1].distance) {
+          spots[spots.len() - 1] = spot;
+        } else {
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+          continue;
+        }
+        // Bubble the new entry into sorted position (max N swaps)
+        for (local i = spots.len() - 1; i > 0 && spots[i].distance < spots[i-1].distance; i--) {
+          local tmp = spots[i]; spots[i] = spots[i-1]; spots[i-1] = tmp;
+        }
 
-    // Trim to max_results
-    if (spots.len() > max_results) {
-      spots = spots.slice(0, max_results);
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
     }
 
     return { success = true, result = spots };
@@ -1038,6 +1056,7 @@ class ClaudeMCP extends GSController {
     local cy = GSMap.GetTileY(loc);
 
     local spots = [];
+    local ops = 0;
 
     for (local dy = -radius; dy <= radius; dy++) {
       for (local dx = -radius; dx <= radius; dx++) {
@@ -1051,29 +1070,28 @@ class ClaudeMCP extends GSController {
         if (adj.len() == 0) continue;
 
         local dist = abs(dx) + abs(dy);
-        spots.append({
+        local spot = {
           x = x, y = y,
           distance = dist,
           adjacent_road_x = adj[0].nx,
           adjacent_road_y = adj[0].ny,
           depot_direction = adj[0].dir
-        });
-      }
-    }
+        };
 
-    // Sort by distance
-    for (local i = 1; i < spots.len(); i++) {
-      local key = spots[i];
-      local j = i - 1;
-      while (j >= 0 && spots[j].distance > key.distance) {
-        spots[j + 1] = spots[j];
-        j--;
-      }
-      spots[j + 1] = key;
-    }
+        if (spots.len() < max_results) {
+          spots.append(spot);
+        } else if (dist < spots[spots.len() - 1].distance) {
+          spots[spots.len() - 1] = spot;
+        } else {
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+          continue;
+        }
+        for (local i = spots.len() - 1; i > 0 && spots[i].distance < spots[i-1].distance; i--) {
+          local tmp = spots[i]; spots[i] = spots[i-1]; spots[i-1] = tmp;
+        }
 
-    if (spots.len() > max_results) {
-      spots = spots.slice(0, max_results);
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
     }
 
     return { success = true, result = spots };
@@ -1118,6 +1136,7 @@ class ClaudeMCP extends GSController {
     local cy = GSMap.GetTileY(loc);
 
     local candidates = [];
+    local ops = 0;
 
     for (local dir = 0; dir <= 1; dir++) {
       local w = (dir == 0) ? plat_len : num_plat;
@@ -1145,30 +1164,23 @@ class ClaudeMCP extends GSController {
 
           if (ok) {
             local dist = abs(dx + w / 2) + abs(dy + h / 2);
-            candidates.append({
-              x = sx, y = sy,
-              direction = dir,
-              distance = dist,
-              elevation = base_h
-            });
+            local spot = { x = sx, y = sy, direction = dir, distance = dist, elevation = base_h };
+            if (candidates.len() < max_results) {
+              candidates.append(spot);
+            } else if (dist < candidates[candidates.len() - 1].distance) {
+              candidates[candidates.len() - 1] = spot;
+            } else {
+              if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+              continue;
+            }
+            for (local i = candidates.len() - 1; i > 0 && candidates[i].distance < candidates[i-1].distance; i--) {
+              local tmp = candidates[i]; candidates[i] = candidates[i-1]; candidates[i-1] = tmp;
+            }
           }
+
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         }
       }
-    }
-
-    // Sort by distance
-    for (local i = 1; i < candidates.len(); i++) {
-      local key = candidates[i];
-      local j = i - 1;
-      while (j >= 0 && candidates[j].distance > key.distance) {
-        candidates[j + 1] = candidates[j];
-        j--;
-      }
-      candidates[j + 1] = key;
-    }
-
-    if (candidates.len() > max_results) {
-      candidates = candidates.slice(0, max_results);
     }
 
     return { success = true, result = candidates };
@@ -1268,6 +1280,7 @@ class ClaudeMCP extends GSController {
     // Collect town center tiles for marking
     local town_tiles = {};
     local town_list = GSTownList();
+    local town_ops = 0;
     foreach (tid, _ in town_list) {
       local loc = GSTown.GetLocation(tid);
       local tx = GSMap.GetTileX(loc);
@@ -1275,8 +1288,10 @@ class ClaudeMCP extends GSController {
       if (tx >= x1 && tx <= x2 && ty >= y1 && ty <= y2) {
         town_tiles[tx + "_" + ty] <- tid;
       }
+      if (++town_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
+    local ops = 0;
     for (local y = y1; y <= y2; y++) {
       local trow = "";
       local hrow = "";
@@ -1311,6 +1326,8 @@ class ClaudeMCP extends GSController {
           trow += "#";
           counts.building++;
         }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
       terrain_rows.append(trow);
       height_rows.append(hrow);
@@ -1493,6 +1510,7 @@ class ClaudeMCP extends GSController {
 
     while (open.len() > 0 && iterations < max_iter) {
       iterations++;
+      if (iterations % this.YIELD_INTERVAL == 0) this.Sleep(1);
       local current = this.HeapPop(open);
       local cur_key = current.v;
 
@@ -1565,6 +1583,7 @@ class ClaudeMCP extends GSController {
     local failures = [];
 
     for (local i = 0; i < path.len(); i++) {
+      if (i % this.YIELD_INTERVAL == 0 && i > 0) this.Sleep(1);
       local prev_tile, cur_tile, next_tile;
 
       if (i == 0 && path.len() > 1) {
@@ -1660,13 +1679,13 @@ class ClaudeMCP extends GSController {
     local cy = GSMap.GetTileY(town_loc);
     local best = null;
     local best_dist = 999999;
+    local ops = 0;
 
     for (local dy = -max_dist; dy <= max_dist; dy++) {
       for (local dx = -max_dist; dx <= max_dist; dx++) {
         local bx = cx + dx;
         local by = cy + dy;
 
-        // Try both directions
         for (local dir = 0; dir < 2; dir++) {
           local w = (dir == 0) ? plat_len : num_plat;
           local h = (dir == 0) ? num_plat : plat_len;
@@ -1692,6 +1711,8 @@ class ClaudeMCP extends GSController {
             }
           }
         }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
     }
     return best;

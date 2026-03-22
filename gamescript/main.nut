@@ -149,6 +149,7 @@ class ClaudeMCP extends GSController {
         // === Orders ===
         case "add_order":           return this.CmdAddOrder(params);
         case "get_orders":          return this.CmdGetOrders(params);
+        case "clear_vehicle_orders": return this.CmdClearVehicleOrders(params);
 
         // === Queries ===
         case "get_towns":           return this.CmdGetTowns();
@@ -186,6 +187,9 @@ class ClaudeMCP extends GSController {
 
         // === Advanced Road (A* Pathfinding) ===
         case "build_road_route":        return this.CmdBuildRoadRoute(params);
+
+        // === High-Level Auto-Route ===
+        case "connect_industries":      return this.CmdConnectIndustries(params);
 
         // === Emergency & Status ===
         case "stop_all_vehicles":       return this.CmdStopAllVehicles(params);
@@ -1134,13 +1138,41 @@ class ClaudeMCP extends GSController {
         // Direction 0 = NE-SW (road is on Y axis relative to stop)
         // Direction 1 = NW-SE (road is on X axis relative to stop)
         local stop_dir = (adj[0].nx != x) ? 1 : 0;
+
+        // Check which adjacent road tiles support drive-through stops.
+        // Drive-through needs road on BOTH opposite sides of the road tile.
+        // For each adjacent road tile, try both directions.
+        local dt_dir = -1;
+        foreach (a in adj) {
+          local rt = GSMap.GetTileIndex(a.nx, a.ny);
+          // Direction 0 (NE-SW): needs road at (nx, ny-1) and (nx, ny+1)
+          local tn = GSMap.GetTileIndex(a.nx, a.ny - 1);
+          local ts = GSMap.GetTileIndex(a.nx, a.ny + 1);
+          if (GSMap.IsValidTile(tn) && GSMap.IsValidTile(ts) &&
+              (GSRoad.IsRoadTile(tn) || GSRoad.IsDriveThroughRoadStationTile(tn)) &&
+              (GSRoad.IsRoadTile(ts) || GSRoad.IsDriveThroughRoadStationTile(ts))) {
+            dt_dir = 0;
+            break;
+          }
+          // Direction 1 (NW-SE): needs road at (nx-1, ny) and (nx+1, ny)
+          local tw = GSMap.GetTileIndex(a.nx - 1, a.ny);
+          local te = GSMap.GetTileIndex(a.nx + 1, a.ny);
+          if (GSMap.IsValidTile(tw) && GSMap.IsValidTile(te) &&
+              (GSRoad.IsRoadTile(tw) || GSRoad.IsDriveThroughRoadStationTile(tw)) &&
+              (GSRoad.IsRoadTile(te) || GSRoad.IsDriveThroughRoadStationTile(te))) {
+            dt_dir = 1;
+            break;
+          }
+        }
+
         local spot = {
           x = x, y = y,
           distance = dist,
           adjacent_road_x = adj[0].nx,
           adjacent_road_y = adj[0].ny,
           adjacent_road_count = adj.len(),
-          stop_direction = stop_dir
+          stop_direction = stop_dir,
+          recommended_drive_through_dir = dt_dir
         };
 
         // Maintain a sorted top-N list instead of collecting all + sorting
@@ -2573,6 +2605,218 @@ class ClaudeMCP extends GSController {
       from_x = p.from_x, from_y = p.from_y,
       to_x = p.to_x, to_y = p.to_y
     }};
+  }
+
+  function CmdClearVehicleOrders(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local vehicle_id = p.vehicle_id;
+
+    if (!GSVehicle.IsValidVehicle(vehicle_id)) {
+      return { success = false, error = "Invalid vehicle ID" };
+    }
+
+    local count = GSOrder.GetOrderCount(vehicle_id);
+    // Remove orders from the end to avoid index shifting
+    for (local i = count - 1; i >= 0; i--) {
+      GSOrder.RemoveOrder(vehicle_id, i);
+    }
+
+    return { success = true, result = { vehicle_id = vehicle_id, orders_removed = count } };
+  }
+
+  function CmdConnectIndustries(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local source_id = p.source_id;
+    local dest_id = p.dest_id;
+    local cargo_engine_id = ("engine_id" in p) ? p.engine_id : -1;
+    local truck_count = ("truck_count" in p) ? p.truck_count : 2;
+    local road_type = ("road_type" in p) ? p.road_type : 0;
+
+    if (!GSIndustry.IsValidIndustry(source_id)) return { success = false, error = "Invalid source industry" };
+    if (!GSIndustry.IsValidIndustry(dest_id)) return { success = false, error = "Invalid destination industry" };
+
+    local result = {};
+    GSRoad.SetCurrentRoadType(road_type);
+
+    // Phase 1: Find buildable tiles near source and destination
+    local src_loc = GSIndustry.GetLocation(source_id);
+    local dst_loc = GSIndustry.GetLocation(dest_id);
+    local src_x = GSMap.GetTileX(src_loc);
+    local src_y = GSMap.GetTileY(src_loc);
+    local dst_x = GSMap.GetTileX(dst_loc);
+    local dst_y = GSMap.GetTileY(dst_loc);
+
+    result.source_name <- GSIndustry.GetName(source_id);
+    result.dest_name <- GSIndustry.GetName(dest_id);
+
+    // Find a buildable flat tile near source (scan 8-tile radius)
+    local src_spot = this.FindBuildableNear(src_x, src_y, 8);
+    if (src_spot == null) return { success = false, error = "No buildable tile near source industry" };
+    this.Sleep(1);
+
+    local dst_spot = this.FindBuildableNear(dst_x, dst_y, 8);
+    if (dst_spot == null) return { success = false, error = "No buildable tile near destination industry" };
+    this.Sleep(1);
+
+    // Phase 2: Build road from source to destination (L-shaped)
+    // First build horizontal, then vertical
+    local mid_x = dst_spot.x;
+    local mid_y = src_spot.y;
+
+    local built1 = 0;
+    local built2 = 0;
+
+    // Horizontal leg
+    if (src_spot.x != mid_x) {
+      local step = (mid_x > src_spot.x) ? 1 : -1;
+      local x = src_spot.x;
+      while (x != mid_x) {
+        local from_t = GSMap.GetTileIndex(x, src_spot.y);
+        local to_t = GSMap.GetTileIndex(x + step, src_spot.y);
+        if (GSRoad.BuildRoad(from_t, to_t)) built1++;
+        x += step;
+        if (built1 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+    this.Sleep(1);
+
+    // Vertical leg
+    if (mid_y != dst_spot.y) {
+      local step = (dst_spot.y > mid_y) ? 1 : -1;
+      local y = mid_y;
+      while (y != dst_spot.y) {
+        local from_t = GSMap.GetTileIndex(mid_x, y);
+        local to_t = GSMap.GetTileIndex(mid_x, y + step);
+        if (GSRoad.BuildRoad(from_t, to_t)) built2++;
+        y += step;
+        if (built2 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+    this.Sleep(1);
+
+    result.road_built <- built1 + built2;
+
+    // Phase 3: Build drive-through stops on the road
+    // Find road tiles near source and dest for drive-through stops
+    local src_stop_tile = this.FindRoadTileNear(src_spot.x, src_spot.y, 3);
+    local dst_stop_tile = this.FindRoadTileNear(dst_spot.x, dst_spot.y, 3);
+
+    if (src_stop_tile == null || dst_stop_tile == null) {
+      return { success = false, error = "Could not find road tiles for stops", road_built = built1 + built2 };
+    }
+    this.Sleep(1);
+
+    // Try building drive-through truck stops (try both directions)
+    local src_stop_ok = false;
+    for (local dir = 0; dir <= 1 && !src_stop_ok; dir++) {
+      src_stop_ok = GSRoad.BuildDriveThroughRoadStop(
+        GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y),
+        GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y),
+        road_type, GSStation.STATION_NEW, true, dir  // true = truck stop
+      );
+    }
+    if (!src_stop_ok) return { success = false, error = "Failed to build source truck stop" };
+    this.Sleep(1);
+
+    local dst_stop_ok = false;
+    for (local dir = 0; dir <= 1 && !dst_stop_ok; dir++) {
+      dst_stop_ok = GSRoad.BuildDriveThroughRoadStop(
+        GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y),
+        GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y),
+        road_type, GSStation.STATION_NEW, true, dir
+      );
+    }
+    if (!dst_stop_ok) return { success = false, error = "Failed to build destination truck stop" };
+    this.Sleep(1);
+
+    // Phase 4: Build depot near source
+    local depot_spot = this.FindBuildableNear(src_spot.x, src_spot.y, 5);
+    if (depot_spot == null) return { success = false, error = "No depot spot" };
+
+    // Try building depot facing each direction
+    local depot_tile = GSMap.GetTileIndex(depot_spot.x, depot_spot.y);
+    local depot_ok = false;
+    for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
+      depot_ok = GSRoad.BuildRoadDepot(depot_tile, GSMap.GetTileIndex(
+        depot_spot.x + ((dir == 0) ? -1 : (dir == 2) ? 1 : 0),
+        depot_spot.y + ((dir == 1) ? -1 : (dir == 3) ? 1 : 0)
+      ));
+    }
+    // Connect depot to road
+    if (depot_ok) {
+      GSRoad.BuildRoad(depot_tile, GSMap.GetTileIndex(src_spot.x, src_spot.y));
+    }
+    this.Sleep(1);
+
+    // Phase 5: Get station IDs
+    local src_stn = GSStation.GetStationID(GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y));
+    local dst_stn = GSStation.GetStationID(GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y));
+
+    result.source_station <- src_stn;
+    result.dest_station <- dst_stn;
+    result.depot <- { x = depot_spot.x, y = depot_spot.y };
+
+    // Phase 6: Buy trucks and set orders
+    if (cargo_engine_id < 0) {
+      // No engine specified — caller needs to buy manually
+      result.trucks_bought <- 0;
+      result.note <- "No engine_id specified. Buy trucks manually at the depot.";
+    } else {
+      local trucks = [];
+      for (local t = 0; t < truck_count; t++) {
+        local veh = GSVehicle.BuildVehicle(depot_tile, cargo_engine_id);
+        if (GSVehicle.IsValidVehicle(veh)) {
+          GSOrder.AppendOrder(veh, GSStation.GetLocation(src_stn), GSOrder.OF_FULL_LOAD_ANY);
+          GSOrder.AppendOrder(veh, GSStation.GetLocation(dst_stn), GSOrder.OF_UNLOAD);
+          GSVehicle.StartStopVehicle(veh);
+          trucks.append(veh);
+        }
+        this.Sleep(1);
+      }
+      result.trucks_bought <- trucks.len();
+      // Cap truck_ids to 10
+      if (trucks.len() > 10) {
+        local capped = [];
+        for (local i = 0; i < 10; i++) capped.append(trucks[i]);
+        result.truck_ids <- capped;
+      } else {
+        result.truck_ids <- trucks;
+      }
+    }
+
+    return { success = true, result = result };
+  }
+
+  // Helper: find a flat buildable tile near given coordinates
+  function FindBuildableNear(cx, cy, radius) {
+    for (local r = 1; r <= radius; r++) {
+      for (local dy = -r; dy <= r; dy++) {
+        for (local dx = -r; dx <= r; dx++) {
+          if (abs(dx) != r && abs(dy) != r) continue; // only check perimeter
+          local tile = GSMap.GetTileIndex(cx + dx, cy + dy);
+          if (GSMap.IsValidTile(tile) && GSTile.IsBuildable(tile) && GSTile.GetSlope(tile) == 0) {
+            return { x = cx + dx, y = cy + dy };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // Helper: find a road tile near given coordinates
+  function FindRoadTileNear(cx, cy, radius) {
+    for (local r = 0; r <= radius; r++) {
+      for (local dy = -r; dy <= r; dy++) {
+        for (local dx = -r; dx <= r; dx++) {
+          if (r > 0 && abs(dx) != r && abs(dy) != r) continue;
+          local tile = GSMap.GetTileIndex(cx + dx, cy + dy);
+          if (GSMap.IsValidTile(tile) && GSRoad.IsRoadTile(tile)) {
+            return { x = cx + dx, y = cy + dy };
+          }
+        }
+      }
+    }
+    return null;
   }
 
   function Log(level, msg) {

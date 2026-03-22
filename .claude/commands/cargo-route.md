@@ -9,37 +9,40 @@ Use an expert sub-agent to research optimal cargo routes.
 ### Phase 1: Research (use Agent with WebSearch)
 - Search for "OpenTTD most profitable cargo routes early game"
 - Key profitable routes in temperate:
-  - Coal Mine → Power Plant (reliable, always produces)
-  - Farm → Factory (grain + livestock)
-  - Forest → Sawmill (wood)
-  - Iron Ore Mine → Steel Mill
-  - Oil Wells → Oil Refinery
+  - Coal Mine -> Power Plant (reliable, always produces)
+  - Farm -> Factory (grain + livestock)
+  - Forest -> Sawmill (wood)
+  - Iron Ore Mine -> Steel Mill
+  - Oil Wells -> Oil Refinery
 - Longer distance = more payment per unit, but slower delivery = less volume
 
 ### Phase 2: Find Industries
 1. Use `get_industries` to list all industries with types and locations.
-2. Match source → destination pairs from the profitable routes list above.
+2. Match source -> destination pairs from the profitable routes list above.
 3. Pick the pair with best balance of distance (30-80 tiles) and production.
 4. Use `get_industry_info` on the source to check production levels.
 
 ### Phase 3: Build Infrastructure
 
 **CRITICAL LEARNINGS:**
-- **Truck stop direction matters!** Same as bus stops:
-  - Direction 0=NE-SW: road approaches from north/south (Y axis)
-  - Direction 1=NW-SE: road approaches from east/west (X axis)
-  - Wrong direction = trucks circle the stop but never enter
-- **Industry tiles are NOT buildable.** Place truck stops on adjacent buildable tiles.
+- **ALWAYS use `is_drive_through=true`. Regular bay stops are unreliable.** Trucks frequently fail to enter bay stops even with correct direction, appearing "lost" and circling endlessly.
+- **Drive-through stops MUST be placed on existing road tiles, not adjacent buildable tiles.** Use `find_drive_through_spots` or check `recommended_drive_through_dir` from `find_bus_stop_spots`.
+- **If ERR_ROAD_DRIVE_THROUGH_WRONG_DIRECTION, try the other direction value (0 or 1).** One of the two directions will work on any straight road segment.
+- **Junctions/corners may reject both directions — find a straight road segment instead.**
+- **Industry tiles are NOT buildable.** Place truck stops on road tiles near the industry, not on the industry itself.
 - **Use `get_tile_info` to find flat, buildable tiles** near industries (slope=0, is_buildable=true).
 - **Build road in open terrain between industries** — much easier than through towns.
 - **Order flags matter:** source=1 (full load), destination=2 (unload all).
 
 Steps:
-1. Find buildable tiles adjacent to source industry using `get_tile_info` on surrounding tiles.
-2. Use `build_road_stop` with `is_truck_stop=true` and correct direction near the source.
-3. Do the same near the destination industry.
-4. Build a `build_road_depot` near the source.
-5. Connect with `build_road_line` (L-shaped: horizontal then vertical).
+1. Build a road near the source industry if none exists. Use `get_tile_info` to find buildable tiles.
+2. Use `find_drive_through_spots` near the source to find suitable road tiles for drive-through stops.
+   - If no town nearby, build a short road segment (2+ tiles straight) and place the drive-through stop on it.
+3. Use `build_road_stop` with `is_truck_stop=true`, `is_drive_through=true`, and the recommended direction.
+4. If ERR_ROAD_DRIVE_THROUGH_WRONG_DIRECTION: try the other direction (0 or 1).
+5. Do the same near the destination industry.
+6. Build a `build_road_depot` near the source.
+7. Connect with `build_road_line` (L-shaped: horizontal then vertical).
    - Open terrain between industries is usually easier than town centers.
    - If slopes block, offset the route by 1-2 tiles.
 
@@ -51,7 +54,7 @@ Steps:
    - cargo_type 8 = iron ore, 9 = steel, 10 = valuables
 3. Use `buy_vehicle` with the matching engine_id.
 4. Use `get_stations` to get station IDs.
-5. Set orders: source station (order_flags=1 for full load) → destination (order_flags=2 for unload all).
+5. Set orders: source station (order_flags=1 for full load) -> destination (order_flags=2 for unload all).
 6. Use `start_vehicle`.
 7. Buy 2-3 trucks per route for good throughput.
 
@@ -59,8 +62,9 @@ Steps:
 1. Check `get_vehicles` — look for:
    - `cargo_loaded > 0` — truck is carrying cargo (good!)
    - `speed > 0` — truck is moving
-   - `speed = 0, state = 0` — truck is STUCK/LOST (check stop direction)
+   - `speed = 0, state = 0` — truck is STUCK/LOST (rebuild stop as drive-through on straight road)
    - `state = 3` — loading at station (working correctly)
+   - `cargo_loaded > 0` but never delivering — stop may be inaccessible, rebuild as drive-through
 2. Check `get_company_economy` for `deliveredCargo` increasing.
 3. Add more trucks to profitable routes, fix or shut down unprofitable ones.
 
@@ -78,6 +82,7 @@ Steps:
 If `deliveredCargo` stays 0:
 1. Check vehicle positions with `get_vehicles` — are they moving?
 2. Check `cargo_loaded` — are they picking up cargo?
-3. If `speed=0, state=0` near a stop: **direction mismatch** — rebuild stop
+3. If `speed=0, state=0` near a stop: **stop is inaccessible** — rebuild as drive-through on a straight road segment
 4. If trucks moving but never loading: truck stop might be too far from industry
 5. If loading but never unloading: check road connection to destination stop
+6. If `cargo_loaded > 0` but never delivering: destination stop may be inaccessible — use drive-through

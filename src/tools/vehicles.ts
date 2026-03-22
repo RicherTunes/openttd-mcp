@@ -287,6 +287,43 @@ export function registerVehicleTools(
   );
 
   server.registerTool(
+    "clear_vehicle_orders",
+    {
+      description:
+        "Remove all orders from a vehicle. Useful when changing routes or rebuilding stops.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        vehicle_id: z.number().describe("Vehicle ID to clear orders from"),
+      },
+    },
+    async ({ company_id, vehicle_id }) => {
+      try {
+        const result = await bridge.execute("clear_vehicle_orders", {
+          company_id,
+          vehicle_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Orders cleared for vehicle ${vehicle_id}. ${JSON.stringify(result)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to clear orders: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
     "get_vehicle_orders",
     {
       description: "Get the order list for a vehicle.",

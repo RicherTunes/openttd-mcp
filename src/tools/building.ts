@@ -258,7 +258,7 @@ export function registerBuildingTools(
     "build_road_stop",
     {
       description:
-        "Build a bus stop or truck loading bay. Use find_drive_through_spots to find suitable locations for drive-through stops, or find_bus_stop_spots for regular stops. Drive-through stops (is_drive_through=true) are recommended as they avoid direction issues.",
+        "RECOMMENDED: Use is_drive_through=true for reliable stops. Regular bay stops are unreliable. Drive-through stops must be placed ON existing road tiles. Use find_drive_through_spots to find suitable locations. If ERR_ROAD_DRIVE_THROUGH_WRONG_DIRECTION, try the other direction.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Stop tile X coordinate"),
@@ -722,6 +722,68 @@ export function registerBuildingTools(
             {
               type: "text",
               text: `Failed to place signals: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "connect_industries",
+    {
+      description:
+        "Connect two industries with a complete truck route. Automatically builds road, drive-through truck stops, depot, buys trucks, and sets orders. Use get_industries to find industry IDs and get_engines for truck engine IDs.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        source_id: z.number().describe("Source industry ID (produces cargo)"),
+        dest_id: z.number().describe("Destination industry ID (accepts cargo)"),
+        engine_id: z
+          .number()
+          .optional()
+          .describe(
+            "Truck engine ID (from get_engines). Omit to skip truck purchase."
+          ),
+        truck_count: z
+          .number()
+          .default(2)
+          .describe("Number of trucks to buy (default 2)"),
+        road_type: z
+          .number()
+          .default(0)
+          .describe("Road type ID (0 = normal road)"),
+      },
+    },
+    async ({ company_id, source_id, dest_id, engine_id, truck_count, road_type }) => {
+      try {
+        const params: Record<string, unknown> = {
+          company_id,
+          source_id,
+          dest_id,
+          truck_count,
+          road_type,
+        };
+        if (engine_id !== undefined) params.engine_id = engine_id;
+
+        const result = await bridge.execute(
+          "connect_industries",
+          params,
+          120000
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Industry route established! ${JSON.stringify(result, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to connect industries: ${err instanceof Error ? err.message : String(err)}`,
             },
           ],
         };

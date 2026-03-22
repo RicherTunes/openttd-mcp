@@ -1009,6 +1009,45 @@ export function registerBuildingTools(
   );
 
   server.registerTool(
+    "remove_station",
+    {
+      description:
+        "Remove a station/stop at a tile by demolishing it.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        x: z.number().describe("Station tile X coordinate"),
+        y: z.number().describe("Station tile Y coordinate"),
+      },
+    },
+    async ({ company_id, x, y }) => {
+      try {
+        const result = await bridge.execute("remove_station", {
+          company_id,
+          x,
+          y,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Station removed at (${x},${y}). ${JSON.stringify(result)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to remove station: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
     "connect_towns_bus",
     {
       description:

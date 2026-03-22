@@ -4,25 +4,34 @@ Set up a truck route to haul cargo between an industry and its consumer. Argumen
 
 ## Strategy
 
-Use an expert sub-agent to research optimal cargo routes.
+Use smart tools to find and validate the best cargo routes before building.
 
-### Phase 1: Research (use Agent with WebSearch)
-- Search for "OpenTTD most profitable cargo routes early game"
-- Key profitable routes in temperate:
-  - Coal Mine -> Power Plant (reliable, always produces)
-  - Farm -> Factory (grain + livestock)
-  - Forest -> Sawmill (wood)
-  - Iron Ore Mine -> Steel Mill
-  - Oil Wells -> Oil Refinery
-- Longer distance = more payment per unit, but slower delivery = less volume
+### Phase 1: Route Discovery
+1. `find_route_opportunities(company_id=0)` — automatically identifies the best unserved cargo routes, ranked by profitability.
+2. `get_cargo_payment_rates()` — check which cargo types pay the most per unit to pick the best cargo.
+3. `get_subsidies()` — check for subsidized routes that pay 2x. Prioritize these.
+4. `estimate_route_profit` on top candidates — verify profitability before committing money.
 
 ### Phase 2: Find Industries
 1. Use `get_industries` to list all industries with types and locations.
-2. Match source -> destination pairs from the profitable routes list above.
+2. Match source -> destination pairs from the route opportunities identified above.
 3. Pick the pair with best balance of distance (30-80 tiles) and production.
 4. Use `get_industry_info` on the source to check production levels.
+5. Use `check_industry_catchment` to verify that your planned stop placement will actually catch the industry's cargo.
+
+Key profitable routes in temperate:
+- Coal Mine -> Power Plant (reliable, always produces)
+- Farm -> Factory (grain + livestock)
+- Forest -> Sawmill (wood)
+- Iron Ore Mine -> Steel Mill
+- Oil Wells -> Oil Refinery
+- Longer distance = more payment per unit, but slower delivery = less volume
 
 ### Phase 3: Build Infrastructure
+
+**ONE-CALL ROUTE SETUP**: Use `connect_industries(company_id=0, source_id=X, dest_id=Y, engine_id=Z)` to build an entire cargo route in one call — stops, road, depot, vehicle, orders. This is the preferred method when available.
+
+**MANUAL BUILD** (fallback if connect_industries fails or for custom setups):
 
 **CRITICAL LEARNINGS:**
 - **ALWAYS use `is_drive_through=true`. Regular bay stops are unreliable.** Trucks frequently fail to enter bay stops even with correct direction, appearing "lost" and circling endlessly.

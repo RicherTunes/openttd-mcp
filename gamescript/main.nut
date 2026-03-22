@@ -230,6 +230,11 @@ class ClaudeMCP extends GSController {
         case "find_route_opportunities": return this.CmdFindRouteOpportunities(params);
         case "get_waiting_cargo":        return this.CmdGetWaitingCargo(params);
 
+        // === Auto-scaling, Fleet Ranking & Station Management ===
+        case "auto_add_vehicles": return this.CmdAutoAddVehicles(params);
+        case "rank_vehicles":     return this.CmdRankVehicles(params);
+        case "remove_station":    return this.CmdRemoveStation(params);
+
         default:
           return { success = false, error = "Unknown action: " + action };
       }
@@ -2473,7 +2478,7 @@ class ClaudeMCP extends GSController {
               local wagons_built = 0;
               for (local w = 0; w < wcount; w++) {
                 local wag_id = GSVehicle.BuildVehicle(depot_tile, p.wagon_id);
-                if (GSVehicle.IsValidVehicle(wag_id) || GSError.GetLastErrorString() == "ERR_NONE") {
+                if (GSVehicle.IsValidVehicle(wag_id)) {
                   wagons_built++;
                 }
               }
@@ -2704,12 +2709,13 @@ class ClaudeMCP extends GSController {
     if (src_spot.x != mid_x) {
       local step = (mid_x > src_spot.x) ? 1 : -1;
       local x = src_spot.x;
+      local road_ops = 0;
       while (x != mid_x) {
         local from_t = GSMap.GetTileIndex(x, src_spot.y);
         local to_t = GSMap.GetTileIndex(x + step, src_spot.y);
         if (GSRoad.BuildRoad(from_t, to_t)) built1++;
         x += step;
-        if (built1 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
     }
     this.Sleep(1);
@@ -2718,12 +2724,13 @@ class ClaudeMCP extends GSController {
     if (mid_y != dst_spot.y) {
       local step = (dst_spot.y > mid_y) ? 1 : -1;
       local y = mid_y;
+      local road_ops = 0;
       while (y != dst_spot.y) {
         local from_t = GSMap.GetTileIndex(mid_x, y);
         local to_t = GSMap.GetTileIndex(mid_x, y + step);
         if (GSRoad.BuildRoad(from_t, to_t)) built2++;
         y += step;
-        if (built2 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
     }
     this.Sleep(1);
@@ -2871,12 +2878,13 @@ class ClaudeMCP extends GSController {
     if (stop_a_tile.x != mid_x) {
       local step = (mid_x > stop_a_tile.x) ? 1 : -1;
       local x = stop_a_tile.x;
+      local road_ops = 0;
       while (x != mid_x) {
         local from_t = GSMap.GetTileIndex(x, stop_a_tile.y);
         local to_t = GSMap.GetTileIndex(x + step, stop_a_tile.y);
         if (GSRoad.BuildRoad(from_t, to_t)) built1++;
         x += step;
-        if (built1 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
     }
     this.Sleep(1);
@@ -2885,12 +2893,13 @@ class ClaudeMCP extends GSController {
     if (mid_y != stop_b_tile.y) {
       local step = (stop_b_tile.y > mid_y) ? 1 : -1;
       local y = mid_y;
+      local road_ops = 0;
       while (y != stop_b_tile.y) {
         local from_t = GSMap.GetTileIndex(mid_x, y);
         local to_t = GSMap.GetTileIndex(mid_x, y + step);
         if (GSRoad.BuildRoad(from_t, to_t)) built2++;
         y += step;
-        if (built2 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
     }
     this.Sleep(1);
@@ -3435,6 +3444,7 @@ class ClaudeMCP extends GSController {
     }
 
     // Estimate transit time (1 tile ~ 2.5 days at 48 km/h)
+    if (speed <= 0) speed = 1;
     local days_per_tile = 120.0 / speed; // rough approximation
     local days_transit = (distance * days_per_tile).tointeger();
     if (days_transit < 1) days_transit = 1;
@@ -3545,6 +3555,7 @@ class ClaudeMCP extends GSController {
       }
 
       subsidies.append(entry);
+      if (subsidies.len() >= 5) break;
       if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
@@ -3729,7 +3740,7 @@ class ClaudeMCP extends GSController {
         issue = "BROKEN_DOWN - will auto-recover";
       }
 
-      if (issue != null && problems.len() < 15) {
+      if (issue != null && problems.len() < 8) {
         local loc = GSVehicle.GetLocation(vid);
         problems.append({
           vehicle_id = vid,
@@ -3798,6 +3809,7 @@ class ClaudeMCP extends GSController {
             best_dist = dist;
             best_dst = dst;
           }
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         }
 
         if (best_dst >= 0 && best_dist < 150) {
@@ -3857,7 +3869,7 @@ class ClaudeMCP extends GSController {
     }
 
     // Cap response
-    if (opportunities.len() > 10) opportunities = opportunities.slice(0, 10);
+    if (opportunities.len() > 5) opportunities = opportunities.slice(0, 5);
 
     return { success = true, result = opportunities };
   }
@@ -3893,7 +3905,7 @@ class ClaudeMCP extends GSController {
         }
       }
 
-      if (total_waiting > 0 && stations_with_cargo.len() < 10) {
+      if (total_waiting > 0 && stations_with_cargo.len() < 5) {
         stations_with_cargo.append({
           station_id = sid,
           station_name = GSBaseStation.GetName(sid),
@@ -3906,6 +3918,136 @@ class ClaudeMCP extends GSController {
     }
 
     return { success = true, result = stations_with_cargo };
+  }
+
+  // =====================================================================
+  // Auto-scaling: find stations with waiting cargo and vehicles serving them
+  // =====================================================================
+  function CmdAutoAddVehicles(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local max_add = ("max_add" in p) ? p.max_add : 3;
+
+    // Find stations with significant waiting cargo
+    local stn_list = GSStationList(GSStation.STATION_ANY);
+    local stn_ids = [];
+    foreach (sid, _ in stn_list) stn_ids.append(sid);
+
+    local cargo_list = GSCargoList();
+    local cargo_ids = [];
+    foreach (cid, _ in cargo_list) cargo_ids.append(cid);
+
+    local busy_stations = [];
+    local ops = 0;
+
+    for (local i = 0; i < stn_ids.len(); i++) {
+      local sid = stn_ids[i];
+      local total = 0;
+      for (local c = 0; c < cargo_ids.len(); c++) {
+        total += GSStation.GetCargoWaiting(sid, cargo_ids[c]);
+      }
+      if (total > 50) {
+        busy_stations.append({ station_id = sid, waiting = total });
+      }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    // Find vehicles serving those stations and clone them
+    local veh_list = GSVehicleList();
+    local veh_ids = [];
+    foreach (vid, _ in veh_list) veh_ids.append(vid);
+
+    local added = 0;
+
+    for (local s = 0; s < busy_stations.len() && added < max_add; s++) {
+      local target_stn = busy_stations[s].station_id;
+
+      // Find a vehicle that visits this station
+      for (local v = 0; v < veh_ids.len() && added < max_add; v++) {
+        local vid = veh_ids[v];
+        local order_count = GSOrder.GetOrderCount(vid);
+        local serves_station = false;
+
+        for (local o = 0; o < order_count; o++) {
+          local dest = GSOrder.GetOrderDestination(vid, o);
+          if (GSStation.GetStationID(dest) == target_stn) {
+            serves_station = true;
+            break;
+          }
+        }
+
+        if (serves_station && !GSVehicle.IsStoppedInDepot(vid)) {
+          local engine = GSVehicle.GetEngineType(vid);
+          busy_stations[s].rawset("vehicle_serving", vid);
+          busy_stations[s].rawset("engine_id", engine);
+          busy_stations[s].rawset("station_name", GSBaseStation.GetName(target_stn));
+          break;
+        }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+
+    // Cap response
+    if (busy_stations.len() > 10) busy_stations = busy_stations.slice(0, 10);
+
+    return { success = true, result = {
+      busy_stations = busy_stations,
+      recommendation = "Buy more vehicles at the depot serving these stations"
+    }};
+  }
+
+  // =====================================================================
+  // Vehicle profit ranking
+  // =====================================================================
+  function CmdRankVehicles(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local veh_list = GSVehicleList();
+    local ids = [];
+    foreach (vid, _ in veh_list) ids.append(vid);
+
+    local vehicles = [];
+    local ops = 0;
+
+    for (local i = 0; i < ids.len(); i++) {
+      local vid = ids[i];
+      vehicles.append({
+        id = vid,
+        name = GSVehicle.GetName(vid),
+        profit_ly = GSVehicle.GetProfitLastYear(vid),
+        profit_ty = GSVehicle.GetProfitThisYear(vid),
+        age = GSVehicle.GetAge(vid)
+      });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    // Sort by last year profit descending (bubble sort, capped)
+    for (local i = 0; i < vehicles.len() - 1 && i < 30; i++) {
+      for (local j = i + 1; j < vehicles.len(); j++) {
+        if (vehicles[j].profit_ly > vehicles[i].profit_ly) {
+          local tmp = vehicles[i]; vehicles[i] = vehicles[j]; vehicles[j] = tmp;
+        }
+      }
+    }
+
+    // Cap to top 15
+    if (vehicles.len() > 15) vehicles = vehicles.slice(0, 15);
+
+    return { success = true, result = vehicles };
+  }
+
+  // =====================================================================
+  // Remove station by demolishing its tile
+  // =====================================================================
+  function CmdRemoveStation(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local x = p.x;
+    local y = p.y;
+    local tile = GSMap.GetTileIndex(x, y);
+
+    if (GSTile.DemolishTile(tile)) {
+      return { success = true, result = { x = x, y = y, removed = true } };
+    }
+    return { success = false, error = "Failed to remove: " + GSError.GetLastErrorString() };
   }
 
   function Save() { return {}; }

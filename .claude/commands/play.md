@@ -6,15 +6,22 @@ Play OpenTTD strategically to maximize company value. Arguments: `$ARGUMENTS`
 
 You are an AI transport tycoon. Your goal is to build a profitable transport empire. Use expert sub-agents for research and strategy.
 
-## Phase 1: Scout (use Agent with WebSearch for "OpenTTD winning strategy early game")
+## Phase 0: Instant Game Understanding
 
 1. Connect to the server if not connected.
-2. Get the game date — strategy differs by era:
+2. `get_map_overview(company_id=0)` — get instant snapshot of date, money, towns, industries, fleet size.
+3. `find_route_opportunities(company_id=0)` — identify best unserved routes before building anything.
+4. `get_subsidies()` — find bonus routes that pay 2x.
+5. `estimate_route_profit` on top candidates — verify profitability before committing money.
+
+## Phase 1: Scout
+
+1. Get the game date — strategy differs by era:
    - 1950-1970: Road vehicles only (slow buses/trucks). Focus on short profitable routes.
    - 1970-1990: Better vehicles available. Expand to rail.
    - 1990+: Fast trains and aircraft. Go big.
-3. Get towns (sorted by population) and industries.
-4. Map out the best route opportunities.
+2. Get towns (sorted by population) and industries.
+3. Map out the best route opportunities using `find_route_opportunities`.
 
 ## Phase 2: Early Game (Road Vehicles)
 
@@ -46,13 +53,18 @@ When cash allows (50k+):
 - **Don't overbuild** — start small, prove profitability, then scale.
 - **Avoid dense towns** for road building. Use outskirts or demolish strategically.
 - **Coal is king** early game — reliable production, always a power plant nearby.
-- **Check vehicle state** regularly — lost vehicles burn cash for nothing.
-- **Monitor vehicle health**: check `cargo_loaded` and `speed` fields on vehicles. `speed=0` + `state=0` means STUCK/LOST. `cargo_loaded > 0` but never delivering means the destination stop is inaccessible.
+- **Use `diagnose_vehicles`** regularly to detect and fix stuck, lost, aging, or unprofitable vehicles.
+- **Use `get_waiting_cargo`** to find stations that need more vehicles assigned.
+- **Use `replace_old_vehicles`** when fleet ages to keep efficiency high.
+- **Use `set_loan`** to repay loan when profitable — reduce interest costs.
+- **Use `terraform`** when terrain blocks construction — flatten or adjust slopes.
 
 ## Monitoring Loop
 
 Every few minutes:
-1. `get_company_economy` — are we profitable?
-2. `get_vehicles` — any lost or negative-profit vehicles? Check `speed` and `cargo_loaded` fields.
-3. Add trucks to routes with cargo waiting at stations.
-4. Look for new route opportunities as money grows.
+1. `diagnose_vehicles(company_id=0)` — primary vehicle health check (replaces manual get_vehicles analysis). Detects stuck, lost, aging, unprofitable vehicles automatically.
+2. `get_waiting_cargo(company_id=0)` — find stations with cargo piling up that need more vehicles.
+3. `get_company_economy` — are we profitable?
+4. `get_subsidies()` — check for new bonus routes.
+5. `replace_old_vehicles(company_id=0)` — replace aging fleet when needed.
+6. Look for new route opportunities with `find_route_opportunities` as money grows.

@@ -4,19 +4,21 @@ Poll the game state periodically and report issues. Use the `/loop` skill to run
 
 ## What to Check
 
-1. **Finances**: `get_company_economy` — alert if money < 10,000 or income trending negative
-2. **Vehicles**: `get_vehicles` — check each vehicle:
-   - state=5 (crashed) -> alert immediately
-   - state=4 (broken) -> note, will self-recover
-   - speed=0 + state=0 -> STUCK/LOST — vehicle is "running" but can't move. Likely a bay stop issue or road disconnection. Rebuild stop as drive-through.
-   - cargo_loaded > 0 but never delivering -> destination stop inaccessible
-   - profit_this_year strongly negative -> route may be unprofitable
-   - Same position as last check -> vehicle might be stuck/lost
-3. **Cargo delivery**: If `deliveredCargo` stays at 0 for multiple checks, something is wrong
-4. **Date**: `get_game_date` to track time progression
-5. **Alerts**: Use `get_alerts` to check for any game-generated warnings or notifications
-6. **Game status**: Use `get_game_status` to get an overview of game state including paused status
-7. **Area inspection**: Use `get_tile_range` to inspect a range of tiles when investigating stuck vehicles or infrastructure issues
+1. **Vehicle Diagnostics** (primary check): `diagnose_vehicles(company_id=0)` — automatically detects all vehicle problems:
+   - STUCK/LOST vehicles (speed=0, state=0)
+   - Crashed vehicles
+   - Broken down vehicles
+   - Aging vehicles needing replacement
+   - Unprofitable vehicles
+   - Vehicles with too few orders
+   This replaces manual `get_vehicles` analysis.
+2. **Cargo Bottlenecks**: `get_waiting_cargo(company_id=0)` — find stations where cargo is piling up. If waiting cargo > 100, that route needs more vehicles.
+3. **Financial Health**: `get_company_info(company_id=0)` — comprehensive financial overview including money, loan, income, and company stats.
+4. **Game Alerts**: `get_alerts()` — check for game-generated warnings, notifications, and important events.
+5. **Cargo delivery**: If `deliveredCargo` stays at 0 for multiple checks, something is wrong
+6. **Date**: `get_game_date` to track time progression
+7. **Game status**: Use `get_game_status` to get an overview of game state including paused status
+8. **Area inspection**: Use `get_tile_range` to inspect a range of tiles when investigating stuck vehicles or infrastructure issues
 
 ## Vehicle States Reference
 | State | Meaning |
@@ -40,9 +42,11 @@ The OpenTTD API does NOT expose a "lost" flag. To detect lost vehicles:
 ## Quick Check Command
 
 Run these MCP tools in sequence (NOT in parallel — they go through the GameScript queue):
-1. `get_company_economy(company_id=0)`
-2. `get_vehicles(company_id=0)`
-3. Report: money, income trend, vehicle states, any issues
+1. `diagnose_vehicles(company_id=0)` — primary vehicle health check
+2. `get_waiting_cargo(company_id=0)` — cargo bottleneck detection
+3. `get_company_info(company_id=0)` — financial health
+4. `get_alerts()` — game notifications
+5. Report: vehicle problems, cargo bottlenecks, financial status, any alerts
 
 ## Recommended Interval
 

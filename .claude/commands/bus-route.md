@@ -4,17 +4,20 @@ Set up a complete bus service between two towns. Provide town names or IDs as ar
 
 ## Strategy
 
-Use an expert sub-agent to research the best approach before building.
+Use smart tools to set up bus routes efficiently.
 
-### Phase 1: Research (use Agent tool with WebSearch)
-- Search for "OpenTTD bus route strategy" to find optimal stop placement and vehicle count
-- Key insight: place stops near town CENTER for maximum passenger catchment
-- Drive-through stops on existing roads avoid building through dense town centers
+### Phase 1: One-Call Setup (Preferred)
+Use `connect_towns_bus(company_id=0, town_a_id=X, town_b_id=Y)` to build an entire bus route in one call — stops, road, depot, buses, orders. This is the fastest and most reliable method.
 
-### Phase 2: Find Towns
+### Phase 2: Find Towns (if manual setup needed)
 1. Use `get_towns` to list all towns with populations and coordinates.
 2. If no towns specified in arguments, pick the two closest towns with population > 500.
 3. Calculate Manhattan distance between candidates. Ideal range: 20-60 tiles for buses.
+4. Use `get_town_rating(company_id=0, town_id=X)` to check your rating before building — low ratings can block construction.
+
+Key insights:
+- Place stops near town CENTER for maximum passenger catchment
+- Drive-through stops on existing roads avoid building through dense town centers
 
 ### Phase 3: Build Infrastructure
 
@@ -71,6 +74,11 @@ Then:
 | 3 | At station (loading/unloading) |
 | 4 | Broken down |
 | 5 | Crashed |
+
+## Town Rating Management
+- Use `get_town_rating(company_id=0, town_id=X)` before and after building to monitor your standing.
+- If rating drops after demolishing buildings, use `plant_trees(company_id=0, tile_x=X, tile_y=Y)` near the town to recover rating.
+- Low town rating can prevent you from building new stations in that town.
 
 ## Common Issues
 - **Vehicle lost**: Stop is a regular bay stop or drive-through on a junction. Rebuild as drive-through on a straight road segment.

@@ -474,6 +474,81 @@ export function registerVehicleTools(
   );
 
   server.registerTool(
+    "rank_vehicles",
+    {
+      description:
+        "Rank all vehicles by profitability. Shows top 15 most/least profitable vehicles. Use to identify which routes make money and which to shut down.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+      },
+    },
+    async ({ company_id }) => {
+      try {
+        const result = await bridge.execute("rank_vehicles", {
+          company_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to rank vehicles: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "auto_add_vehicles",
+    {
+      description:
+        "Find stations with cargo piling up and identify which vehicle/engine serves them. Reports busy stations that need more vehicles.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        max_add: z
+          .number()
+          .default(3)
+          .describe("Maximum number of busy stations to report (default 3)"),
+      },
+    },
+    async ({ company_id, max_add }) => {
+      try {
+        const result = await bridge.execute("auto_add_vehicles", {
+          company_id,
+          max_add,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to find busy stations: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
     "diagnose_vehicles",
     {
       description:

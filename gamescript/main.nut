@@ -3443,11 +3443,14 @@ class ClaudeMCP extends GSController {
       purchase_price = GSEngine.GetPrice(engine_id);
     }
 
-    // Estimate transit time (1 tile ~ 2.5 days at 48 km/h)
+    // Estimate transit time
+    // In OpenTTD, road vehicles at 48 km/h cover ~1 tile per 0.7 game days
+    // Formula: days_per_tile ≈ 35 / speed (calibrated from gameplay)
     if (speed <= 0) speed = 1;
-    local days_per_tile = 120.0 / speed; // rough approximation
+    local days_per_tile = 35.0 / speed;
     local days_transit = (distance * days_per_tile).tointeger();
     if (days_transit < 1) days_transit = 1;
+    if (days_transit > 200) days_transit = 200;
 
     // Revenue per trip
     local income_per_100 = GSCargo.GetCargoIncome(cargo_id, distance, days_transit);

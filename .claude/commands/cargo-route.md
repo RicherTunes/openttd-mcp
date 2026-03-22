@@ -23,8 +23,20 @@ Use an expert sub-agent to research optimal cargo routes.
 4. Use `get_industry_info` on the source to check production levels.
 
 ### Phase 3: Build Infrastructure
+
+**CRITICAL LEARNINGS:**
+- **Truck stop direction matters!** Same as bus stops:
+  - Direction 0=NE-SW: road approaches from north/south (Y axis)
+  - Direction 1=NW-SE: road approaches from east/west (X axis)
+  - Wrong direction = trucks circle the stop but never enter
+- **Industry tiles are NOT buildable.** Place truck stops on adjacent buildable tiles.
+- **Use `get_tile_info` to find flat, buildable tiles** near industries (slope=0, is_buildable=true).
+- **Build road in open terrain between industries** — much easier than through towns.
+- **Order flags matter:** source=1 (full load), destination=2 (unload all).
+
+Steps:
 1. Find buildable tiles adjacent to source industry using `get_tile_info` on surrounding tiles.
-2. Use `build_road_stop` with `is_truck_stop=true` near the source.
+2. Use `build_road_stop` with `is_truck_stop=true` and correct direction near the source.
 3. Do the same near the destination industry.
 4. Build a `build_road_depot` near the source.
 5. Connect with `build_road_line` (L-shaped: horizontal then vertical).
@@ -44,9 +56,13 @@ Use an expert sub-agent to research optimal cargo routes.
 7. Buy 2-3 trucks per route for good throughput.
 
 ### Phase 5: Monitor
-1. Check `get_company_economy` for delivered cargo increasing.
-2. Check `get_vehicles` for profitability after first deliveries.
-3. Add more trucks to profitable routes, shut down unprofitable ones.
+1. Check `get_vehicles` — look for:
+   - `cargo_loaded > 0` — truck is carrying cargo (good!)
+   - `speed > 0` — truck is moving
+   - `speed = 0, state = 0` — truck is STUCK/LOST (check stop direction)
+   - `state = 3` — loading at station (working correctly)
+2. Check `get_company_economy` for `deliveredCargo` increasing.
+3. Add more trucks to profitable routes, fix or shut down unprofitable ones.
 
 ## Cargo Types Quick Reference
 | ID | Cargo | Source | Destination |
@@ -57,3 +73,11 @@ Use an expert sub-agent to research optimal cargo routes.
 | 6 | Grain | Farm | Factory |
 | 7 | Wood | Forest | Sawmill |
 | 8 | Iron Ore | Iron Ore Mine | Steel Mill |
+
+## Debugging No Deliveries
+If `deliveredCargo` stays 0:
+1. Check vehicle positions with `get_vehicles` — are they moving?
+2. Check `cargo_loaded` — are they picking up cargo?
+3. If `speed=0, state=0` near a stop: **direction mismatch** — rebuild stop
+4. If trucks moving but never loading: truck stop might be too far from industry
+5. If loading but never unloading: check road connection to destination stop

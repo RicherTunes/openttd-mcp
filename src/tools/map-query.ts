@@ -1146,4 +1146,85 @@ export function registerMapQueryTools(
       }
     }
   );
+
+  // =====================================================================
+  // DIAGNOSTICS & FLEET MANAGEMENT
+  // =====================================================================
+
+  server.registerTool(
+    "find_route_opportunities",
+    {
+      description:
+        "Find the best unserved routes on the map. Scans for close industry pairs (coal->power, farm->factory, etc.) and nearby big town pairs for bus routes. Returns opportunities sorted by type with distances.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        max_results: z
+          .number()
+          .optional()
+          .describe("Maximum industry route results (default 5)"),
+      },
+    },
+    async ({ company_id, max_results }) => {
+      try {
+        const params: Record<string, unknown> = { company_id };
+        if (max_results !== undefined) params.max_results = max_results;
+        const result = await bridge.execute(
+          "find_route_opportunities",
+          params
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to find route opportunities: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_waiting_cargo",
+    {
+      description:
+        "List all stations with cargo waiting for pickup. Identifies bottlenecks where more vehicles are needed. Shows cargo types and amounts per station.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+      },
+    },
+    async ({ company_id }) => {
+      try {
+        const result = await bridge.execute("get_waiting_cargo", {
+          company_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to get waiting cargo: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }

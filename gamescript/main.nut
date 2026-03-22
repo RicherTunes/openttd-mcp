@@ -204,12 +204,31 @@ class ClaudeMCP extends GSController {
         case "plant_trees":             return this.CmdPlantTrees(params);
         case "get_station_cargo":       return this.CmdGetStationCargo(params);
 
+        // === Economy & Overview ===
+        case "get_subsidies":            return this.CmdGetSubsidies(params);
+        case "get_map_overview":         return this.CmdGetMapOverview(params);
+        case "get_cargo_payment_rates":  return this.CmdGetCargoPaymentRates(params);
+
         // === Finance ===
         case "set_loan":                return this.CmdSetLoan(params);
+
+        // === Terraform ===
+        case "terraform":               return this.CmdTerraform(params);
+
+        // === Route Analysis ===
+        case "estimate_route_profit":   return this.CmdEstimateRouteProfit(params);
+
+        // === Company Info ===
+        case "get_company_info":        return this.CmdGetCompanyInfo(params);
 
         // === Atomic Operations ===
         case "demolish_and_build_road": return this.CmdDemolishAndBuildRoad(params);
         case "check_industry_catchment": return this.CmdCheckIndustryCatchment(params);
+
+        // === Diagnostics & Fleet Management ===
+        case "diagnose_vehicles":        return this.CmdDiagnoseVehicles(params);
+        case "find_route_opportunities": return this.CmdFindRouteOpportunities(params);
+        case "get_waiting_cargo":        return this.CmdGetWaitingCargo(params);
 
         default:
           return { success = false, error = "Unknown action: " + action };
@@ -3321,6 +3340,572 @@ class ClaudeMCP extends GSController {
         (month < 10 ? "0" : "") + month + "-" +
         (day < 10 ? "0" : "") + day
     }};
+  }
+
+  // =====================================================================
+  // TERRAFORM
+  // =====================================================================
+
+  function CmdTerraform(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local x = p.x;
+    local y = p.y;
+    local action = ("action" in p) ? p.action : "level";
+    local radius = ("radius" in p) ? p.radius : 0;
+    local tile = GSMap.GetTileIndex(x, y);
+
+    if (!GSMap.IsValidTile(tile)) return { success = false, error = "Invalid tile" };
+
+    local modified = 0;
+    local ops = 0;
+
+    if (action == "raise") {
+      for (local dy = -radius; dy <= radius; dy++) {
+        for (local dx = -radius; dx <= radius; dx++) {
+          local t = GSMap.GetTileIndex(x + dx, y + dy);
+          if (GSMap.IsValidTile(t)) {
+            if (GSTile.RaiseTile(t, GSTile.GetSlope(t))) modified++;
+          }
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        }
+      }
+    } else if (action == "lower") {
+      for (local dy = -radius; dy <= radius; dy++) {
+        for (local dx = -radius; dx <= radius; dx++) {
+          local t = GSMap.GetTileIndex(x + dx, y + dy);
+          if (GSMap.IsValidTile(t)) {
+            if (GSTile.LowerTile(t, GSTile.GetSlope(t))) modified++;
+          }
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        }
+      }
+    } else if (action == "level") {
+      local target_h = GSTile.GetMaxHeight(tile);
+      for (local dy = -radius; dy <= radius; dy++) {
+        for (local dx = -radius; dx <= radius; dx++) {
+          local t = GSMap.GetTileIndex(x + dx, y + dy);
+          if (!GSMap.IsValidTile(t)) continue;
+          local h = GSTile.GetMaxHeight(t);
+          while (h < target_h) {
+            if (!GSTile.RaiseTile(t, GSTile.GetSlope(t))) break;
+            h = GSTile.GetMaxHeight(t);
+            modified++;
+          }
+          while (h > target_h) {
+            if (!GSTile.LowerTile(t, GSTile.GetSlope(t))) break;
+            h = GSTile.GetMaxHeight(t);
+            modified++;
+          }
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        }
+      }
+    } else {
+      return { success = false, error = "Unknown action. Use: raise, lower, level" };
+    }
+
+    return { success = true, result = { action = action, tiles_modified = modified } };
+  }
+
+  // =====================================================================
+  // ROUTE PROFITABILITY ESTIMATOR
+  // =====================================================================
+
+  function CmdEstimateRouteProfit(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local from_x = p.from_x;
+    local from_y = p.from_y;
+    local to_x = p.to_x;
+    local to_y = p.to_y;
+    local cargo_id = ("cargo_id" in p) ? p.cargo_id : 1;
+    local engine_id = ("engine_id" in p) ? p.engine_id : -1;
+
+    local distance = abs(to_x - from_x) + abs(to_y - from_y);
+
+    // Vehicle stats
+    local capacity = 20;
+    local speed = 48; // km/h default
+    local running_cost = 421;
+    local purchase_price = 4500;
+
+    if (engine_id >= 0 && GSEngine.IsValidEngine(engine_id)) {
+      capacity = GSEngine.GetCapacity(engine_id);
+      speed = GSEngine.GetMaxSpeed(engine_id);
+      running_cost = GSEngine.GetRunningCost(engine_id);
+      purchase_price = GSEngine.GetPrice(engine_id);
+    }
+
+    // Estimate transit time (1 tile ~ 2.5 days at 48 km/h)
+    local days_per_tile = 120.0 / speed; // rough approximation
+    local days_transit = (distance * days_per_tile).tointeger();
+    if (days_transit < 1) days_transit = 1;
+
+    // Revenue per trip
+    local income_per_100 = GSCargo.GetCargoIncome(cargo_id, distance, days_transit);
+    local revenue_per_trip = (income_per_100 * capacity / 100.0).tointeger();
+
+    // Trips per year (365 days / round_trip_days)
+    local round_trip_days = days_transit * 2 + 10; // +10 for loading time
+    local trips_per_year = (365.0 / round_trip_days).tointeger();
+    if (trips_per_year < 1) trips_per_year = 1;
+
+    // Annual revenue and costs
+    local annual_revenue = revenue_per_trip * trips_per_year;
+    local annual_costs = running_cost; // running cost is per year
+    local annual_profit = annual_revenue - annual_costs;
+
+    return { success = true, result = {
+      cargo = GSCargo.GetName(cargo_id),
+      distance = distance,
+      days_transit = days_transit,
+      capacity = capacity,
+      speed = speed,
+      revenue_per_trip = revenue_per_trip,
+      trips_per_year = trips_per_year,
+      annual_revenue = annual_revenue,
+      annual_running_cost = annual_costs,
+      annual_profit = annual_profit,
+      purchase_price = purchase_price,
+      payback_months = annual_profit > 0 ? ((purchase_price * 12.0 / annual_profit).tointeger()) : -1,
+      profitable = annual_profit > 0
+    }};
+  }
+
+  // =====================================================================
+  // COMPANY INFO
+  // =====================================================================
+
+  function CmdGetCompanyInfo(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local cid = GSCompany.ResolveCompanyID(GSCompany.COMPANY_SELF);
+
+    return { success = true, result = {
+      company_id = cid,
+      name = GSCompany.GetName(cid),
+      money = GSCompany.GetBankBalance(cid),
+      loan = GSCompany.GetLoanAmount(),
+      max_loan = GSCompany.GetMaxLoanAmount(),
+      quarterly_income = GSCompany.GetQuarterlyIncome(cid, GSCompany.CURRENT_QUARTER),
+      quarterly_expenses = GSCompany.GetQuarterlyExpenses(cid, GSCompany.CURRENT_QUARTER),
+      company_value = GSCompany.GetQuarterlyCompanyValue(cid, GSCompany.CURRENT_QUARTER)
+    }};
+  }
+
+  // =====================================================================
+  // SUBSIDIES
+  // =====================================================================
+
+  function CmdGetSubsidies(p) {
+    local subsidies = [];
+    local sub_list = GSSubsidyList();
+    local ids = [];
+    foreach (sid, _ in sub_list) ids.append(sid);
+    local ops = 0;
+
+    for (local i = 0; i < ids.len(); i++) {
+      local sid = ids[i];
+      local is_awarded = GSSubsidy.IsAwarded(sid);
+      local entry = {
+        id = sid,
+        is_awarded = is_awarded
+      };
+
+      if (is_awarded) {
+        entry.rawset("awarded_to", GSSubsidy.GetAwardedTo(sid));
+      }
+
+      // Source and destination
+      local src_type = GSSubsidy.GetSourceType(sid);
+      local dst_type = GSSubsidy.GetDestinationType(sid);
+      local src_id = GSSubsidy.GetSourceIndex(sid);
+      local dst_id = GSSubsidy.GetDestinationIndex(sid);
+
+      entry.rawset("cargo", GSCargo.GetName(GSSubsidy.GetCargoType(sid)));
+      entry.rawset("cargo_id", GSSubsidy.GetCargoType(sid));
+
+      // Source info
+      if (src_type == GSSubsidy.SPT_INDUSTRY) {
+        entry.rawset("source_type", "industry");
+        entry.rawset("source_name", GSIndustry.GetName(src_id));
+        entry.rawset("source_id", src_id);
+      } else {
+        entry.rawset("source_type", "town");
+        entry.rawset("source_name", GSTown.GetName(src_id));
+        entry.rawset("source_id", src_id);
+      }
+
+      // Destination info
+      if (dst_type == GSSubsidy.SPT_INDUSTRY) {
+        entry.rawset("dest_type", "industry");
+        entry.rawset("dest_name", GSIndustry.GetName(dst_id));
+        entry.rawset("dest_id", dst_id);
+      } else {
+        entry.rawset("dest_type", "town");
+        entry.rawset("dest_name", GSTown.GetName(dst_id));
+        entry.rawset("dest_id", dst_id);
+      }
+
+      subsidies.append(entry);
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    return { success = true, result = subsidies };
+  }
+
+  // =====================================================================
+  // MAP OVERVIEW
+  // =====================================================================
+
+  function CmdGetMapOverview(p) {
+    local company_id = ("company_id" in p) ? p.company_id : -1;
+
+    // Date
+    local date = GSDate.GetCurrentDate();
+    local year = GSDate.GetYear(date);
+    local month = GSDate.GetMonth(date);
+
+    // Map size
+    local map_x = GSMap.GetMapSizeX();
+    local map_y = GSMap.GetMapSizeY();
+
+    // Count towns and total population
+    local town_list = GSTownList();
+    local town_ids = [];
+    foreach (tid, _ in town_list) town_ids.append(tid);
+    local total_pop = 0;
+    local ops = 0;
+    for (local i = 0; i < town_ids.len(); i++) {
+      total_pop += GSTown.GetPopulation(town_ids[i]);
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    // Count industries by type
+    local ind_list = GSIndustryList();
+    local ind_ids = [];
+    foreach (iid, _ in ind_list) ind_ids.append(iid);
+    local ind_types = {};
+    for (local i = 0; i < ind_ids.len(); i++) {
+      local type_name = GSIndustryType.GetName(GSIndustry.GetIndustryType(ind_ids[i]));
+      if (type_name in ind_types) {
+        ind_types[type_name]++;
+      } else {
+        ind_types[type_name] <- 1;
+      }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    // Industry type counts as array (capped)
+    local ind_summary = [];
+    foreach (name, count in ind_types) {
+      ind_summary.append({ type = name, count = count });
+      if (ind_summary.len() >= 15) break;
+    }
+
+    // Subsidy count
+    local sub_list = GSSubsidyList();
+    local sub_count = 0;
+    foreach (sid, _ in sub_list) sub_count++;
+
+    // Company info (if specified)
+    local company_info = null;
+    if (company_id >= 0) {
+      local cm = GSCompanyMode(company_id);
+      local veh_list = GSVehicleList();
+      local veh_count = 0;
+      foreach (v, _ in veh_list) veh_count++;
+      local stn_list = GSStationList(GSStation.STATION_ANY);
+      local stn_count = 0;
+      foreach (s, _ in stn_list) stn_count++;
+
+      company_info = {
+        money = GSCompany.GetBankBalance(GSCompany.COMPANY_SELF),
+        loan = GSCompany.GetLoanAmount(),
+        vehicles = veh_count,
+        stations = stn_count
+      };
+    }
+
+    local result = {
+      date = year + "-" + (month < 10 ? "0" : "") + month,
+      map_size = map_x + "x" + map_y,
+      towns = town_ids.len(),
+      total_population = total_pop,
+      industries = ind_ids.len(),
+      industry_types = ind_summary,
+      subsidies = sub_count
+    };
+
+    if (company_info != null) {
+      result.rawset("company", company_info);
+    }
+
+    return { success = true, result = result };
+  }
+
+  // =====================================================================
+  // CARGO PAYMENT RATES
+  // =====================================================================
+
+  function CmdGetCargoPaymentRates(p) {
+    local distance = ("distance" in p) ? p.distance : 50;
+    local days_transit = ("days_transit" in p) ? p.days_transit : 30;
+
+    local cargo_list = GSCargoList();
+    local cargo_ids = [];
+    foreach (cid, _ in cargo_list) cargo_ids.append(cid);
+
+    local rates = [];
+    local ops = 0;
+    for (local i = 0; i < cargo_ids.len(); i++) {
+      local cid = cargo_ids[i];
+      local income = GSCargo.GetCargoIncome(cid, distance, days_transit);
+      rates.append({
+        cargo_id = cid,
+        name = GSCargo.GetName(cid),
+        income_per_100 = income,
+        distance = distance,
+        days_transit = days_transit
+      });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    // Sort by income (simple bubble sort, small list)
+    for (local i = 0; i < rates.len() - 1; i++) {
+      for (local j = i + 1; j < rates.len(); j++) {
+        if (rates[j].income_per_100 > rates[i].income_per_100) {
+          local tmp = rates[i]; rates[i] = rates[j]; rates[j] = tmp;
+        }
+      }
+    }
+
+    return { success = true, result = rates };
+  }
+
+  // =====================================================================
+  // DIAGNOSTICS & FLEET MANAGEMENT
+  // =====================================================================
+
+  function CmdDiagnoseVehicles(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local veh_list = GSVehicleList();
+    local ids = [];
+    foreach (vid, _ in veh_list) ids.append(vid);
+
+    local problems = [];
+    local summary = { total = ids.len(), running = 0, loading = 0, stopped = 0, lost = 0, old = 0, unprofitable = 0, broken = 0 };
+    local ops = 0;
+
+    for (local i = 0; i < ids.len(); i++) {
+      local vid = ids[i];
+      local state = GSVehicle.GetState(vid);
+      local speed = GSVehicle.GetCurrentSpeed(vid);
+      local age = GSVehicle.GetAge(vid);
+      local max_age = GSVehicle.GetMaxAge(vid);
+      local profit_ly = GSVehicle.GetProfitLastYear(vid);
+      local orders = GSOrder.GetOrderCount(vid);
+
+      // Count states
+      if (state == 0) summary.running++;
+      else if (state == 3) summary.loading++;
+      else if (state == 1 || state == 2) summary.stopped++;
+      else if (state == 4) summary.broken++;
+
+      // Detect problems
+      local issue = null;
+
+      if (state == 5) {
+        issue = "CRASHED";
+      } else if (state == 0 && speed == 0) {
+        issue = "STUCK/LOST - cannot pathfind to destination";
+        summary.lost++;
+      } else if (orders < 2) {
+        issue = "TOO_FEW_ORDERS - needs at least 2 orders for a route";
+      } else if (age > max_age * 80 / 100) {
+        issue = "AGING - past 80% lifespan, breakdowns increase";
+        summary.old++;
+      } else if (profit_ly < -500) {
+        issue = "UNPROFITABLE - lost " + (-profit_ly) + " last year";
+        summary.unprofitable++;
+      } else if (state == 4) {
+        issue = "BROKEN_DOWN - will auto-recover";
+      }
+
+      if (issue != null && problems.len() < 15) {
+        local loc = GSVehicle.GetLocation(vid);
+        problems.append({
+          vehicle_id = vid,
+          name = GSVehicle.GetName(vid),
+          issue = issue,
+          x = GSMap.GetTileX(loc),
+          y = GSMap.GetTileY(loc)
+        });
+      }
+
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    return { success = true, result = { summary = summary, problems = problems } };
+  }
+
+  function CmdFindRouteOpportunities(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local max_results = ("max_results" in p) ? p.max_results : 5;
+
+    // Find industries not served by any station
+    local ind_list = GSIndustryList();
+    local ind_ids = [];
+    foreach (iid, _ in ind_list) ind_ids.append(iid);
+
+    local opportunities = [];
+    local ops = 0;
+
+    // Industry pair matching (source -> consumer)
+    // Types: Coal Mine(0)->Power Plant(1), Farm(9)->Factory(6), Forest(3)->Sawmill(2),
+    //        Iron Ore Mine(18)->Steel Mill(8), Oil Wells(11)->Oil Refinery(4)
+    local pairs = [
+      { src_type = 0, dst_type = 1, cargo = "Coal" },
+      { src_type = 9, dst_type = 6, cargo = "Farm goods" },
+      { src_type = 3, dst_type = 2, cargo = "Wood" },
+      { src_type = 18, dst_type = 8, cargo = "Iron Ore" },
+      { src_type = 11, dst_type = 4, cargo = "Oil" }
+    ];
+
+    for (local p_idx = 0; p_idx < pairs.len(); p_idx++) {
+      local pair = pairs[p_idx];
+      local sources = [];
+      local dests = [];
+
+      for (local i = 0; i < ind_ids.len(); i++) {
+        local itype = GSIndustry.GetIndustryType(ind_ids[i]);
+        if (itype == pair.src_type) sources.append(ind_ids[i]);
+        else if (itype == pair.dst_type) dests.append(ind_ids[i]);
+      }
+
+      // Find closest unserved pairs
+      for (local s = 0; s < sources.len() && opportunities.len() < max_results; s++) {
+        local src = sources[s];
+        local src_loc = GSIndustry.GetLocation(src);
+        local src_x = GSMap.GetTileX(src_loc);
+        local src_y = GSMap.GetTileY(src_loc);
+
+        local best_dst = -1;
+        local best_dist = 999999;
+
+        for (local d = 0; d < dests.len(); d++) {
+          local dst = dests[d];
+          local dst_loc = GSIndustry.GetLocation(dst);
+          local dist = abs(src_x - GSMap.GetTileX(dst_loc)) + abs(src_y - GSMap.GetTileY(dst_loc));
+          if (dist < best_dist && dist > 20) { // min 20 tiles for profit
+            best_dist = dist;
+            best_dst = dst;
+          }
+        }
+
+        if (best_dst >= 0 && best_dist < 150) {
+          local dst_loc = GSIndustry.GetLocation(best_dst);
+          opportunities.append({
+            cargo = pair.cargo,
+            source_id = src,
+            source_name = GSIndustry.GetName(src),
+            source_x = src_x,
+            source_y = src_y,
+            dest_id = best_dst,
+            dest_name = GSIndustry.GetName(best_dst),
+            dest_x = GSMap.GetTileX(dst_loc),
+            dest_y = GSMap.GetTileY(dst_loc),
+            distance = best_dist
+          });
+        }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+
+    // Also find top unserved town pairs for bus routes
+    local town_list = GSTownList();
+    local town_ids = [];
+    foreach (tid, _ in town_list) town_ids.append(tid);
+
+    // Sort towns by population (simple selection of top 5)
+    local big_towns = [];
+    for (local i = 0; i < town_ids.len() && big_towns.len() < 10; i++) {
+      local pop = GSTown.GetPopulation(town_ids[i]);
+      if (pop >= 500) big_towns.append({ id = town_ids[i], pop = pop });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    // Find closest big town pairs
+    for (local i = 0; i < big_towns.len() && opportunities.len() < max_results + 3; i++) {
+      for (local j = i + 1; j < big_towns.len(); j++) {
+        local a_loc = GSTown.GetLocation(big_towns[i].id);
+        local b_loc = GSTown.GetLocation(big_towns[j].id);
+        local dist = abs(GSMap.GetTileX(a_loc) - GSMap.GetTileX(b_loc)) + abs(GSMap.GetTileY(a_loc) - GSMap.GetTileY(b_loc));
+        if (dist > 15 && dist < 80) {
+          opportunities.append({
+            cargo = "Passengers",
+            source_id = big_towns[i].id,
+            source_name = GSTown.GetName(big_towns[i].id),
+            source_x = GSMap.GetTileX(a_loc),
+            source_y = GSMap.GetTileY(a_loc),
+            dest_id = big_towns[j].id,
+            dest_name = GSTown.GetName(big_towns[j].id),
+            dest_x = GSMap.GetTileX(b_loc),
+            dest_y = GSMap.GetTileY(b_loc),
+            distance = dist
+          });
+        }
+      }
+    }
+
+    // Cap response
+    if (opportunities.len() > 10) opportunities = opportunities.slice(0, 10);
+
+    return { success = true, result = opportunities };
+  }
+
+  function CmdGetWaitingCargo(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local stn_list = GSStationList(GSStation.STATION_ANY);
+    local stn_ids = [];
+    foreach (sid, _ in stn_list) stn_ids.append(sid);
+
+    local stations_with_cargo = [];
+    local ops = 0;
+
+    local cargo_list = GSCargoList();
+    local cargo_ids = [];
+    foreach (cid, _ in cargo_list) cargo_ids.append(cid);
+
+    for (local i = 0; i < stn_ids.len(); i++) {
+      local sid = stn_ids[i];
+      local total_waiting = 0;
+      local cargo_detail = [];
+
+      for (local c = 0; c < cargo_ids.len(); c++) {
+        local amount = GSStation.GetCargoWaiting(sid, cargo_ids[c]);
+        if (amount > 0) {
+          total_waiting += amount;
+          if (cargo_detail.len() < 5) {
+            cargo_detail.append({
+              cargo = GSCargo.GetName(cargo_ids[c]),
+              amount = amount
+            });
+          }
+        }
+      }
+
+      if (total_waiting > 0 && stations_with_cargo.len() < 10) {
+        stations_with_cargo.append({
+          station_id = sid,
+          station_name = GSBaseStation.GetName(sid),
+          total_waiting = total_waiting,
+          cargo = cargo_detail
+        });
+      }
+
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    return { success = true, result = stations_with_cargo };
   }
 
   function Save() { return {}; }

@@ -474,6 +474,41 @@ export function registerVehicleTools(
   );
 
   server.registerTool(
+    "diagnose_vehicles",
+    {
+      description:
+        "Diagnose ALL vehicle problems in one call. Identifies: stuck/lost vehicles, too few orders, aging fleet, unprofitable routes, breakdowns, crashes. Returns summary counts and problem details.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+      },
+    },
+    async ({ company_id }) => {
+      try {
+        const result = await bridge.execute("diagnose_vehicles", {
+          company_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to diagnose vehicles: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
     "replace_old_vehicles",
     {
       description:

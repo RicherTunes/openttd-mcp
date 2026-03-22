@@ -937,6 +937,60 @@ export function registerMapQueryTools(
   );
 
   server.registerTool(
+    "estimate_route_profit",
+    {
+      description:
+        "Estimate annual profit for a cargo route before building. Shows revenue per trip, trips per year, costs, payback period. Helps decide which routes to build.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        from_x: z.number().describe("Source tile X coordinate"),
+        from_y: z.number().describe("Source tile Y coordinate"),
+        to_x: z.number().describe("Destination tile X coordinate"),
+        to_y: z.number().describe("Destination tile Y coordinate"),
+        cargo_id: z
+          .number()
+          .default(1)
+          .describe("Cargo type ID (default 1 = coal). Use get_cargo_types to see all."),
+        engine_id: z
+          .number()
+          .optional()
+          .describe("Engine ID to use for vehicle stats. Omit for rough estimate with defaults."),
+      },
+    },
+    async ({ company_id, from_x, from_y, to_x, to_y, cargo_id, engine_id }) => {
+      try {
+        const params: Record<string, unknown> = {
+          company_id,
+          from_x,
+          from_y,
+          to_x,
+          to_y,
+          cargo_id,
+        };
+        if (engine_id !== undefined) params.engine_id = engine_id;
+        const result = await bridge.execute("estimate_route_profit", params);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to estimate route profit: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
     "get_station_cargo",
     {
       description:
@@ -952,6 +1006,126 @@ export function registerMapQueryTools(
           company_id,
           station_id,
         });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  // =====================================================================
+  // SUBSIDIES, MAP OVERVIEW, CARGO PAYMENT RATES
+  // =====================================================================
+
+  server.registerTool(
+    "get_subsidies",
+    {
+      description:
+        "List available and awarded subsidies. Subsidies offer bonus payment for specific cargo routes. Prioritize these for maximum profit.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const result = await bridge.execute("get_subsidies");
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_map_overview",
+    {
+      description:
+        "Get a high-level summary of the game: date, map size, town count, population, industries by type, subsidies, and company stats. One call to understand the entire game.",
+      inputSchema: {
+        company_id: z
+          .number()
+          .optional()
+          .describe(
+            "Company ID to include company stats (money, loan, vehicles, stations)"
+          ),
+      },
+    },
+    async ({ company_id }) => {
+      try {
+        const params: Record<string, unknown> = {};
+        if (company_id !== undefined) params.company_id = company_id;
+        const result = await bridge.execute("get_map_overview", params);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_cargo_payment_rates",
+    {
+      description:
+        "Calculate cargo payment rates sorted by profitability. Shows expected income per 100 units at given distance and transit time. Use to pick the most profitable cargo routes.",
+      inputSchema: {
+        distance: z
+          .number()
+          .optional()
+          .describe("Distance in tiles for income calculation (default 50)"),
+        days_transit: z
+          .number()
+          .optional()
+          .describe(
+            "Days in transit for income calculation (default 30)"
+          ),
+      },
+    },
+    async ({ distance, days_transit }) => {
+      try {
+        const params: Record<string, unknown> = {};
+        if (distance !== undefined) params.distance = distance;
+        if (days_transit !== undefined) params.days_transit = days_transit;
+        const result = await bridge.execute("get_cargo_payment_rates", params);
         return {
           content: [
             {

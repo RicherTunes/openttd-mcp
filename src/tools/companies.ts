@@ -5,11 +5,13 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AdminClient } from "../admin-client.js";
+import { GameScriptBridge } from "../gamescript/bridge.js";
 import { COLOUR_NAMES } from "../types/openttd.js";
 
 export function registerCompanyTools(
   server: McpServer,
-  client: AdminClient
+  client: AdminClient,
+  bridge: GameScriptBridge
 ): void {
   server.registerTool(
     "get_companies",
@@ -163,6 +165,41 @@ export function registerCompanyTools(
           },
         ],
       };
+    }
+  );
+
+  server.registerTool(
+    "get_company_info",
+    {
+      description:
+        "Get detailed company information: name, money, loan, quarterly income/expenses, company value.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+      },
+    },
+    async ({ company_id }) => {
+      try {
+        const result = await bridge.execute("get_company_info", {
+          company_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to get company info: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
     }
   );
 }

@@ -916,6 +916,55 @@ export function registerBuildingTools(
   );
 
   server.registerTool(
+    "terraform",
+    {
+      description:
+        "Modify terrain. raise/lower changes height, level flattens area to center tile height. Use before building on hilly terrain.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID that will pay for terraforming"),
+        x: z.number().describe("Center tile X coordinate"),
+        y: z.number().describe("Center tile Y coordinate"),
+        action: z
+          .enum(["raise", "lower", "level"])
+          .default("level")
+          .describe("Terraform action: raise, lower, or level"),
+        radius: z
+          .number()
+          .default(0)
+          .describe("Radius around center tile to terraform (0 = single tile)"),
+      },
+    },
+    async ({ company_id, x, y, action, radius }) => {
+      try {
+        const result = await bridge.execute("terraform", {
+          company_id,
+          x,
+          y,
+          action,
+          radius,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Terraform ${action} at (${x},${y}) radius=${radius}. ${JSON.stringify(result)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to terraform: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
     "check_industry_catchment",
     {
       description:

@@ -41,7 +41,7 @@ export function createServer(): {
   registerGameControlTools(server, adminClient, bridge);
   registerRconTools(server, adminClient);
   registerChatTools(server, adminClient);
-  registerCompanyTools(server, adminClient);
+  registerCompanyTools(server, adminClient, bridge);
   registerClientTools(server, adminClient);
   registerBuildingTools(server, bridge);
   registerVehicleTools(server, bridge);

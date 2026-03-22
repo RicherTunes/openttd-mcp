@@ -157,6 +157,7 @@ class ClaudeMCP extends GSController {
         case "get_industry_info":   return this.CmdGetIndustryInfo(params);
         case "get_map_size":        return this.CmdGetMapSize();
         case "get_tile_info":       return this.CmdGetTileInfo(params);
+        case "get_tiles":           return this.CmdGetTiles(params);
         case "get_vehicles":        return this.CmdGetVehicles(params);
         case "get_stations":        return this.CmdGetStations(params);
         case "get_engines":         return this.CmdGetEngines(params);
@@ -756,8 +757,39 @@ class ClaudeMCP extends GSController {
       is_coast = GSTile.IsCoastTile(tile),
       has_tree = GSTile.HasTreeOnTile(tile),
       is_buildable = GSTile.IsBuildable(tile),
+      is_road = GSRoad.IsRoadTile(tile),
+      is_rail = GSRail.IsRailTile(tile),
       owner = GSTile.GetOwner(tile)
     }};
+  }
+
+  // Batch tile query — check multiple tiles in one call
+  function CmdGetTiles(p) {
+    local tiles = ("tiles" in p) ? p.tiles : [];
+    local results = [];
+    local ops = 0;
+
+    for (local i = 0; i < tiles.len() && i < 50; i++) {
+      local tx = tiles[i].x;
+      local ty = tiles[i].y;
+      local tile = GSMap.GetTileIndex(tx, ty);
+      if (!GSMap.IsValidTile(tile)) {
+        results.append({ x = tx, y = ty, valid = false });
+      } else {
+        results.append({
+          x = tx, y = ty, valid = true,
+          height = GSTile.GetMaxHeight(tile),
+          slope = GSTile.GetSlope(tile),
+          is_buildable = GSTile.IsBuildable(tile),
+          is_road = GSRoad.IsRoadTile(tile),
+          is_water = GSTile.IsWaterTile(tile),
+          owner = GSTile.GetOwner(tile)
+        });
+      }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    return { success = true, result = results };
   }
 
   function CmdGetVehicles(p) {

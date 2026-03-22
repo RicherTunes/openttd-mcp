@@ -355,6 +355,8 @@ class ClaudeMCP extends GSController {
       }
     }
 
+    if (failed.len() > 20) failed = failed.slice(0, 20);
+
     // Auto-connect both endpoints to adjacent infrastructure
     local start_tile = GSMap.GetTileIndex(x1, y1);
     local end_tile = GSMap.GetTileIndex(x2, y2);
@@ -609,6 +611,8 @@ class ClaudeMCP extends GSController {
       });
     }
 
+    if (orders.len() > 30) orders = orders.slice(0, 30);
+
     return { success = true, result = { vehicle_id = vehicle_id, order_count = count, orders = orders } };
   }
 
@@ -621,7 +625,10 @@ class ClaudeMCP extends GSController {
     local town_list = GSTownList();
     local ops = 0;
 
-    foreach (town_id, _ in town_list) {
+    local ids = [];
+    foreach (town_id, _ in town_list) ids.append(town_id);
+    for (local i = 0; i < ids.len(); i++) {
+      local town_id = ids[i];
       local loc = GSTown.GetLocation(town_id);
       towns.append({
         id = town_id,
@@ -660,7 +667,10 @@ class ClaudeMCP extends GSController {
     local ind_list = GSIndustryList();
     local ops = 0;
 
-    foreach (ind_id, _ in ind_list) {
+    local ids = [];
+    foreach (ind_id, _ in ind_list) ids.append(ind_id);
+    for (local i = 0; i < ids.len(); i++) {
+      local ind_id = ids[i];
       local loc = GSIndustry.GetLocation(ind_id);
       local ind_type = GSIndustry.GetIndustryType(ind_id);
       industries.append({
@@ -689,7 +699,10 @@ class ClaudeMCP extends GSController {
     local produced = [];
     local cargo_list = GSCargoList();
     local ops = 0;
-    foreach (cargo_id, _ in cargo_list) {
+    local cargo_ids = [];
+    foreach (cargo_id, _ in cargo_list) cargo_ids.append(cargo_id);
+    for (local i = 0; i < cargo_ids.len(); i++) {
+      local cargo_id = cargo_ids[i];
       local last_month = GSIndustry.GetLastMonthProduction(ind_id, cargo_id);
       if (last_month > 0) {
         produced.append({
@@ -750,7 +763,10 @@ class ClaudeMCP extends GSController {
     local veh_list = GSVehicleList();
     local ops = 0;
 
-    foreach (veh_id, _ in veh_list) {
+    local ids = [];
+    foreach (veh_id, _ in veh_list) ids.append(veh_id);
+    for (local i = 0; i < ids.len(); i++) {
+      local veh_id = ids[i];
       if ("vehicle_type" in p && p.vehicle_type != null) {
         local vt = GSVehicle.GetVehicleType(veh_id);
         local type_name = "";
@@ -790,7 +806,10 @@ class ClaudeMCP extends GSController {
     local stn_list = GSStationList(GSStation.STATION_ANY);
     local ops = 0;
 
-    foreach (stn_id, _ in stn_list) {
+    local ids = [];
+    foreach (stn_id, _ in stn_list) ids.append(stn_id);
+    for (local i = 0; i < ids.len(); i++) {
+      local stn_id = ids[i];
       local loc = GSBaseStation.GetLocation(stn_id);
       stations.append({
         id = stn_id,
@@ -823,7 +842,10 @@ class ClaudeMCP extends GSController {
 
     local eng_list = GSEngineList(vt);
     local ops = 0;
-    foreach (eng_id, _ in eng_list) {
+    local ids = [];
+    foreach (eng_id, _ in eng_list) ids.append(eng_id);
+    for (local i = 0; i < ids.len(); i++) {
+      local eng_id = ids[i];
       try {
         if (!GSEngine.IsBuildable(eng_id)) continue;
 
@@ -860,7 +882,10 @@ class ClaudeMCP extends GSController {
     local cargo_list = GSCargoList();
     local ops = 0;
 
-    foreach (cargo_id, _ in cargo_list) {
+    local ids = [];
+    foreach (cargo_id, _ in cargo_list) ids.append(cargo_id);
+    for (local i = 0; i < ids.len(); i++) {
+      local cargo_id = ids[i];
       cargos.append({
         id = cargo_id,
         label = GSCargo.GetCargoLabel(cargo_id),
@@ -878,7 +903,10 @@ class ClaudeMCP extends GSController {
     local rail_list = GSRailTypeList();
     local ops = 0;
 
-    foreach (rail_type, _ in rail_list) {
+    local ids = [];
+    foreach (rail_type, _ in rail_list) ids.append(rail_type);
+    for (local i = 0; i < ids.len(); i++) {
+      local rail_type = ids[i];
       types.append({
         id = rail_type,
         name = GSRail.GetName(rail_type)
@@ -894,7 +922,10 @@ class ClaudeMCP extends GSController {
     local road_list = GSRoadTypeList(GSRoad.ROADTRAMTYPES_ROAD);
     local ops = 0;
 
-    foreach (road_type, _ in road_list) {
+    local road_ids = [];
+    foreach (road_type, _ in road_list) road_ids.append(road_type);
+    for (local i = 0; i < road_ids.len(); i++) {
+      local road_type = road_ids[i];
       types.append({
         id = road_type,
         name = GSRoad.GetName(road_type),
@@ -904,7 +935,10 @@ class ClaudeMCP extends GSController {
     }
 
     local tram_list = GSRoadTypeList(GSRoad.ROADTRAMTYPES_TRAM);
-    foreach (tram_type, _ in tram_list) {
+    local tram_ids = [];
+    foreach (tram_type, _ in tram_list) tram_ids.append(tram_type);
+    for (local i = 0; i < tram_ids.len(); i++) {
+      local tram_type = tram_ids[i];
       types.append({
         id = tram_type,
         name = GSRoad.GetName(tram_type),
@@ -991,7 +1025,10 @@ class ClaudeMCP extends GSController {
     }
 
     // Cap coordinate arrays to avoid exceeding admin port packet size (~1400 bytes)
-    local max_coords = 20;
+    local real_buildable = buildable.len();
+    local real_roads = roads.len();
+    local real_water = water.len();
+    local max_coords = 10;
     if (buildable.len() > max_coords) buildable = buildable.slice(0, max_coords);
     if (roads.len() > max_coords) roads = roads.slice(0, max_coords);
     if (water.len() > max_coords) water = water.slice(0, max_coords);
@@ -1005,10 +1042,10 @@ class ClaudeMCP extends GSController {
       buildings_count = buildings.len(),
       water = water,
       counts = {
-        buildable = buildable.len(),
-        roads = roads.len(),
+        buildable = real_buildable,
+        roads = real_roads,
         buildings = buildings.len(),
-        water = water.len()
+        water = real_water
       }
     }};
   }
@@ -1306,8 +1343,8 @@ class ClaudeMCP extends GSController {
 
     local w = x2 - x1 + 1;
     local h = y2 - y1 + 1;
-    if (w > 50 || h > 50) {
-      return { success = false, error = "Max 50x50 area" };
+    if (w > 20 || h > 20) {
+      return { success = false, error = "Max 20x20 area" };
     }
 
     local terrain_rows = [];
@@ -1323,7 +1360,10 @@ class ClaudeMCP extends GSController {
     local town_tiles = {};
     local town_list = GSTownList();
     local town_ops = 0;
-    foreach (tid, _ in town_list) {
+    local town_ids = [];
+    foreach (tid, _ in town_list) town_ids.append(tid);
+    for (local i = 0; i < town_ids.len(); i++) {
+      local tid = town_ids[i];
       local loc = GSTown.GetLocation(tid);
       local tx = GSMap.GetTileX(loc);
       local ty = GSMap.GetTileY(loc);
@@ -1444,6 +1484,8 @@ class ClaudeMCP extends GSController {
         if (x == x2) break;
       }
     }
+
+    if (failed.len() > 20) failed = failed.slice(0, 20);
 
     return { success = true, result = { built = built, failed = failed, total = built + failed.len() } };
   }
@@ -1674,6 +1716,7 @@ class ClaudeMCP extends GSController {
     foreach (pt in path) {
       path_coords.append({ x = pt.x, y = pt.y, dir = pt.dir });
     }
+    if (path_coords.len() > 50) path_coords = path_coords.slice(0, 50);
 
     return { success = true, result = {
       path_length = path.len(),
@@ -1719,6 +1762,8 @@ class ClaudeMCP extends GSController {
       }
       if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
+
+    if (failures.len() > 20) failures = failures.slice(0, 20);
 
     return { success = true, result = { placed = placed, failed = failures } };
   }

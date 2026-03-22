@@ -258,7 +258,7 @@ export function registerBuildingTools(
     "build_road_stop",
     {
       description:
-        "Build a bus stop or truck loading bay. Must be adjacent to a road.",
+        "Build a bus stop or truck loading bay. Use find_drive_through_spots to find suitable locations for drive-through stops, or find_bus_stop_spots for regular stops. Drive-through stops (is_drive_through=true) are recommended as they avoid direction issues.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Stop tile X coordinate"),

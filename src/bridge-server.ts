@@ -74,6 +74,14 @@ function parseArgs(): { host?: string; port?: number; password?: string; httpPor
   return result;
 }
 
+// Circular buffer for console alerts
+interface Alert {
+  timestamp: number;
+  message: string;
+}
+const alerts: Alert[] = [];
+const MAX_ALERTS = 100;
+
 async function main(): Promise<void> {
   const args = parseArgs();
   const client = new AdminClient();
@@ -84,6 +92,13 @@ async function main(): Promise<void> {
   });
   client.on("close", () => {
     console.log("[bridge] Connection closed");
+  });
+
+  // Buffer console messages as alerts
+  client.on("console", (msg: { origin?: string; message?: string; output?: string }) => {
+    const message = msg.message || msg.output || String(msg);
+    alerts.push({ timestamp: Date.now(), message });
+    if (alerts.length > MAX_ALERTS) alerts.shift();
   });
 
   // Route handler
@@ -221,6 +236,23 @@ async function main(): Promise<void> {
         const timeoutMs = (body.timeoutMs as number) ?? 30000;
         const response = await client.sendGameScriptCommand(action, params, timeoutMs);
         respond(res, 200, response);
+        return;
+      }
+
+      // GET /alerts
+      if (method === "GET" && path === "/alerts") {
+        const since = url.searchParams.get("since");
+        const clear = url.searchParams.get("clear");
+        let filtered = alerts;
+        if (since) {
+          const sinceTs = parseInt(since, 10);
+          filtered = alerts.filter((a) => a.timestamp > sinceTs);
+        }
+        const result = [...filtered];
+        if (clear === "true") {
+          alerts.length = 0;
+        }
+        respond(res, 200, { alerts: result });
         return;
       }
 

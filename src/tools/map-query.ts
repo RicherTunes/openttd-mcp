@@ -376,6 +376,47 @@ export function registerMapQueryTools(
     }
   );
 
+  server.registerTool(
+    "get_tiles",
+    {
+      description:
+        "Query multiple tiles at once (batch). More efficient than calling get_tile_info repeatedly. Returns terrain, height, slope, owner, and build info for each tile.",
+      inputSchema: {
+        tiles: z
+          .array(
+            z.object({
+              x: z.number().describe("Tile X coordinate"),
+              y: z.number().describe("Tile Y coordinate"),
+            })
+          )
+          .max(50)
+          .describe("Array of tile coordinates to query (max 50)"),
+      },
+    },
+    async ({ tiles }) => {
+      try {
+        const result = await bridge.execute("get_tiles", { tiles });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
   // =====================================================================
   // SMART QUERY TOOLS
   // =====================================================================
@@ -442,6 +483,50 @@ export function registerMapQueryTools(
         if (radius !== undefined) params.radius = radius;
         if (max_results !== undefined) params.max_results = max_results;
         const result = await bridge.execute("find_bus_stop_spots", params);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "find_drive_through_spots",
+    {
+      description:
+        "Find road tiles suitable for drive-through bus/truck stops. Drive-through stops avoid direction issues and are placed on existing roads.",
+      inputSchema: {
+        town_id: z.number().describe("Town ID"),
+        radius: z
+          .number()
+          .optional()
+          .describe("Search radius around town center (default 15)"),
+        max_results: z
+          .number()
+          .optional()
+          .describe("Maximum results to return (default 10)"),
+      },
+    },
+    async ({ town_id, radius, max_results }) => {
+      try {
+        const params: Record<string, unknown> = { town_id };
+        if (radius !== undefined) params.radius = radius;
+        if (max_results !== undefined) params.max_results = max_results;
+        const result = await bridge.execute("find_drive_through_spots", params);
         return {
           content: [
             {
@@ -696,6 +781,36 @@ export function registerMapQueryTools(
         };
         if (road_type !== undefined) params.road_type = road_type;
         const result = await bridge.execute("build_road_line", params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return {
+          content: [
+            { type: "text", text: `Failed: ${err instanceof Error ? err.message : String(err)}` },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "check_road_connection",
+    {
+      description:
+        "Check if two tiles are connected by road using BFS pathfinding (max 2000 tiles). Returns whether a road path exists between the two points.",
+      inputSchema: {
+        from_x: z.number().describe("Start tile X coordinate"),
+        from_y: z.number().describe("Start tile Y coordinate"),
+        to_x: z.number().describe("End tile X coordinate"),
+        to_y: z.number().describe("End tile Y coordinate"),
+      },
+    },
+    async ({ from_x, from_y, to_x, to_y }) => {
+      try {
+        const result = await bridge.execute("check_road_connection", {
+          from_x, from_y, to_x, to_y,
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

@@ -238,6 +238,14 @@ export class BridgeClient {
       });
   }
 
+  async getAlerts(since?: number, clear?: boolean): Promise<Array<{timestamp: number, message: string}>> {
+    const params = new URLSearchParams();
+    if (since) params.set('since', String(since));
+    if (clear) params.set('clear', 'true');
+    const result = await this.get(`/alerts?${params.toString()}`);
+    return (result.alerts as Array<{timestamp: number, message: string}>) ?? [];
+  }
+
   /** Fetch full state from bridge */
   private async refreshState(): Promise<void> {
     const status = await this.get("/status");

@@ -167,8 +167,9 @@ class ClaudeMCP extends GSController {
 
         // === Smart Queries ===
         case "scan_town_area":      return this.CmdScanTownArea(params);
-        case "find_bus_stop_spots": return this.CmdFindBusStopSpots(params);
-        case "find_depot_spots":    return this.CmdFindDepotSpots(params);
+        case "find_bus_stop_spots":        return this.CmdFindBusStopSpots(params);
+        case "find_depot_spots":           return this.CmdFindDepotSpots(params);
+        case "find_drive_through_spots":   return this.CmdFindDriveThroughSpots(params);
 
         // === Rail Tools ===
         case "find_rail_station_spot": return this.CmdFindRailStationSpot(params);
@@ -184,6 +185,11 @@ class ClaudeMCP extends GSController {
 
         // === Advanced Road (A* Pathfinding) ===
         case "build_road_route":        return this.CmdBuildRoadRoute(params);
+
+        // === Emergency & Status ===
+        case "stop_all_vehicles":       return this.CmdStopAllVehicles(params);
+        case "get_game_status":         return this.CmdGetGameStatus(params);
+        case "check_road_connection":   return this.CmdCheckRoadConnection(params);
 
         default:
           return { success = false, error = "Unknown action: " + action };
@@ -1195,6 +1201,82 @@ class ClaudeMCP extends GSController {
           adjacent_road_x = adj[0].nx,
           adjacent_road_y = adj[0].ny,
           depot_direction = adj[0].dir
+        };
+
+        if (spots.len() < max_results) {
+          spots.append(spot);
+        } else if (dist < spots[spots.len() - 1].distance) {
+          spots[spots.len() - 1] = spot;
+        } else {
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+          continue;
+        }
+        for (local i = spots.len() - 1; i > 0 && spots[i].distance < spots[i-1].distance; i--) {
+          local tmp = spots[i]; spots[i] = spots[i-1]; spots[i-1] = tmp;
+        }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+
+    return { success = true, result = spots };
+  }
+
+  /**
+   * find_drive_through_spots: Find road tiles suitable for drive-through stops.
+   * Drive-through stops are placed ON existing road tiles that have road on both sides.
+   */
+  function CmdFindDriveThroughSpots(p) {
+    local town_id = p.town_id;
+    if (!GSTown.IsValidTown(town_id)) {
+      return { success = false, error = "Invalid town ID" };
+    }
+
+    local radius = ("radius" in p) ? p.radius : 15;
+    local max_results = ("max_results" in p) ? p.max_results : 10;
+    if (max_results <= 0) return { success = true, result = [] };
+    local loc = GSTown.GetLocation(town_id);
+    local cx = GSMap.GetTileX(loc);
+    local cy = GSMap.GetTileY(loc);
+
+    local spots = [];
+    local ops = 0;
+
+    for (local dy = -radius; dy <= radius; dy++) {
+      for (local dx = -radius; dx <= radius; dx++) {
+        local x = cx + dx;
+        local y = cy + dy;
+        local tile = GSMap.GetTileIndex(x, y);
+        if (!GSMap.IsValidTile(tile)) continue;
+        if (!GSRoad.IsRoadTile(tile)) continue;
+
+        // Check for drive-through: needs road on opposite sides
+        // Direction 0 (NE-SW): check tiles at (x, y-1) and (x, y+1)
+        // Direction 1 (NW-SE): check tiles at (x-1, y) and (x+1, y)
+        local dir = -1;
+        local t_n = GSMap.GetTileIndex(x, y-1);
+        local t_s = GSMap.GetTileIndex(x, y+1);
+        local t_w = GSMap.GetTileIndex(x-1, y);
+        local t_e = GSMap.GetTileIndex(x+1, y);
+
+        if (GSMap.IsValidTile(t_n) && GSRoad.IsRoadTile(t_n) &&
+            GSMap.IsValidTile(t_s) && GSRoad.IsRoadTile(t_s)) {
+          dir = 0;
+        }
+        if (GSMap.IsValidTile(t_w) && GSRoad.IsRoadTile(t_w) &&
+            GSMap.IsValidTile(t_e) && GSRoad.IsRoadTile(t_e)) {
+          if (dir == -1) dir = 1;
+          // If both directions work, prefer the one with longer road stretch
+        }
+
+        if (dir == -1) continue;
+
+        local dist = abs(dx) + abs(dy);
+        local spot = {
+          x = x, y = y,
+          distance = dist,
+          direction = dir,
+          is_drive_through = true
         };
 
         if (spots.len() < max_results) {
@@ -2298,6 +2380,114 @@ class ClaudeMCP extends GSController {
       case 3: return tile - (GSMap.GetTileIndex(0, 1) - GSMap.GetTileIndex(0, 0));
     }
     return tile;
+  }
+
+  // =====================================================================
+  // EMERGENCY & STATUS COMMANDS
+  // =====================================================================
+
+  function CmdStopAllVehicles(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local veh_list = GSVehicleList();
+    local ids = [];
+    foreach (vid, _ in veh_list) ids.append(vid);
+    local stopped = 0;
+    local ops = 0;
+    for (local i = 0; i < ids.len(); i++) {
+      local vid = ids[i];
+      if (!GSVehicle.IsStoppedInDepot(vid)) {
+        GSVehicle.SendVehicleToDepot(vid);
+        stopped++;
+      }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+    return { success = true, result = { sent_to_depot = stopped, total = ids.len() } };
+  }
+
+  function CmdGetGameStatus(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local veh_list = GSVehicleList();
+    local veh_ids = [];
+    foreach (vid, _ in veh_list) veh_ids.append(vid);
+
+    local running = 0;
+    local stopped = 0;
+    local loading = 0;
+    local broken = 0;
+    local ops = 0;
+    for (local i = 0; i < veh_ids.len(); i++) {
+      local state = GSVehicle.GetState(veh_ids[i]);
+      switch (state) {
+        case 0: running++; break;
+        case 1: case 2: stopped++; break;
+        case 3: loading++; break;
+        case 4: broken++; break;
+      }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    local stn_list = GSStationList(GSStation.STATION_ANY);
+    local stn_ids = [];
+    foreach (sid, _ in stn_list) stn_ids.append(sid);
+
+    return { success = true, result = {
+      vehicle_count = veh_ids.len(),
+      vehicles_running = running,
+      vehicles_stopped = stopped,
+      vehicles_loading = loading,
+      vehicles_broken = broken,
+      station_count = stn_ids.len()
+    }};
+  }
+
+  function CmdCheckRoadConnection(p) {
+    local from_tile = GSMap.GetTileIndex(p.from_x, p.from_y);
+    local to_tile = GSMap.GetTileIndex(p.to_x, p.to_y);
+
+    if (!GSMap.IsValidTile(from_tile) || !GSMap.IsValidTile(to_tile)) {
+      return { success = false, error = "Invalid coordinates" };
+    }
+
+    local visited = {};
+    local queue = [from_tile];
+    visited[from_tile] <- true;
+    local found = false;
+    local checked = 0;
+    local max_check = 2000;
+    local ops = 0;
+
+    while (queue.len() > 0 && checked < max_check) {
+      local tile = queue.remove(0);
+      checked++;
+
+      if (tile == to_tile) { found = true; break; }
+
+      // Check 4 neighbors
+      local x = GSMap.GetTileX(tile);
+      local y = GSMap.GetTileY(tile);
+      local neighbors = [
+        GSMap.GetTileIndex(x+1, y),
+        GSMap.GetTileIndex(x-1, y),
+        GSMap.GetTileIndex(x, y+1),
+        GSMap.GetTileIndex(x, y-1)
+      ];
+
+      foreach (n in neighbors) {
+        if (GSMap.IsValidTile(n) && !(n in visited) && GSRoad.IsRoadTile(n)) {
+          visited[n] <- true;
+          queue.append(n);
+        }
+      }
+
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    return { success = true, result = {
+      connected = found,
+      tiles_checked = checked,
+      from_x = p.from_x, from_y = p.from_y,
+      to_x = p.to_x, to_y = p.to_y
+    }};
   }
 
   function Log(level, msg) {

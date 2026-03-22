@@ -400,4 +400,39 @@ export function registerVehicleTools(
       }
     }
   );
+
+  server.registerTool(
+    "stop_all_vehicles",
+    {
+      description:
+        "Emergency: send ALL company vehicles to their nearest depot. Useful for stopping operations quickly.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+      },
+    },
+    async ({ company_id }) => {
+      try {
+        const result = await bridge.execute("stop_all_vehicles", {
+          company_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `All vehicles sent to depot. ${JSON.stringify(result)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to stop all vehicles: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }

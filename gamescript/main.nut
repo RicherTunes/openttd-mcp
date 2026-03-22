@@ -99,6 +99,7 @@ class ClaudeMCP extends GSController {
         };
 
         GSAdmin.Send(response);
+        this.Sleep(1);
       }
 
       this.Log(3, "Sent " + total_chunks + " chunks for " + id);
@@ -312,6 +313,7 @@ class ClaudeMCP extends GSController {
 
     local built = 0;
     local failed = [];
+    local ops = 0;
 
     if (x1 == x2) {
       // Vertical line
@@ -329,6 +331,7 @@ class ClaudeMCP extends GSController {
             built++; // already built counts as success
           }
         }
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         if (y + step == y2) break;
       }
     } else {
@@ -347,6 +350,7 @@ class ClaudeMCP extends GSController {
             built++;
           }
         }
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         if (x + step == x2) break;
       }
     }
@@ -684,6 +688,7 @@ class ClaudeMCP extends GSController {
 
     local produced = [];
     local cargo_list = GSCargoList();
+    local ops = 0;
     foreach (cargo_id, _ in cargo_list) {
       local last_month = GSIndustry.GetLastMonthProduction(ind_id, cargo_id);
       if (last_month > 0) {
@@ -694,6 +699,7 @@ class ClaudeMCP extends GSController {
           transported = GSIndustry.GetLastMonthTransported(ind_id, cargo_id)
         });
       }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = {
@@ -852,6 +858,7 @@ class ClaudeMCP extends GSController {
   function CmdGetCargoTypes() {
     local cargos = [];
     local cargo_list = GSCargoList();
+    local ops = 0;
 
     foreach (cargo_id, _ in cargo_list) {
       cargos.append({
@@ -860,6 +867,7 @@ class ClaudeMCP extends GSController {
         name = GSCargo.GetName(cargo_id),
         is_freight = GSCargo.IsFreight(cargo_id)
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = cargos };
@@ -868,12 +876,14 @@ class ClaudeMCP extends GSController {
   function CmdGetRailTypes() {
     local types = [];
     local rail_list = GSRailTypeList();
+    local ops = 0;
 
     foreach (rail_type, _ in rail_list) {
       types.append({
         id = rail_type,
         name = GSRail.GetName(rail_type)
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = types };
@@ -882,6 +892,7 @@ class ClaudeMCP extends GSController {
   function CmdGetRoadTypes() {
     local types = [];
     local road_list = GSRoadTypeList(GSRoad.ROADTRAMTYPES_ROAD);
+    local ops = 0;
 
     foreach (road_type, _ in road_list) {
       types.append({
@@ -889,6 +900,7 @@ class ClaudeMCP extends GSController {
         name = GSRoad.GetName(road_type),
         is_road = true
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     local tram_list = GSRoadTypeList(GSRoad.ROADTRAMTYPES_TRAM);
@@ -898,6 +910,7 @@ class ClaudeMCP extends GSController {
         name = GSRoad.GetName(tram_type),
         is_road = false
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = types };
@@ -1178,6 +1191,7 @@ class ClaudeMCP extends GSController {
                   GSTile.GetMaxHeight(t) != base_h || GSTile.GetSlope(t) != 0) {
                 ok = false;
               }
+              ops++;
             }
           }
 
@@ -1189,7 +1203,7 @@ class ClaudeMCP extends GSController {
             } else if (dist < candidates[candidates.len() - 1].distance) {
               candidates[candidates.len() - 1] = spot;
             } else {
-              if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+              if (ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
               continue;
             }
             for (local i = candidates.len() - 1; i > 0 && candidates[i].distance < candidates[i-1].distance; i--) {
@@ -1197,7 +1211,7 @@ class ClaudeMCP extends GSController {
             }
           }
 
-          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+          if (ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         }
       }
     }
@@ -1220,6 +1234,7 @@ class ClaudeMCP extends GSController {
     }
 
     local tiles = [];
+    local ops = 0;
 
     if (x1 == x2 && y1 == y2) {
       local tile = GSMap.GetTileIndex(x1, y1);
@@ -1245,6 +1260,7 @@ class ClaudeMCP extends GSController {
             water = GSTile.IsWaterTile(tile)
           });
         }
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         if (y == y2) break;
       }
     } else {
@@ -1260,6 +1276,7 @@ class ClaudeMCP extends GSController {
             water = GSTile.IsWaterTile(tile)
           });
         }
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         if (x == x2) break;
       }
     }
@@ -1386,6 +1403,7 @@ class ClaudeMCP extends GSController {
 
     local built = 0;
     local failed = [];
+    local ops = 0;
 
     if (x1 == x2) {
       local step = (y2 > y1) ? 1 : -1;
@@ -1400,6 +1418,7 @@ class ClaudeMCP extends GSController {
           failed.append({ x = x1, y = y, error = GSError.GetLastErrorString() });
         }
 
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         if (y == y2) break;
       }
     } else {
@@ -1415,6 +1434,7 @@ class ClaudeMCP extends GSController {
           failed.append({ x = x, y = y1, error = GSError.GetLastErrorString() });
         }
 
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         if (x == x2) break;
       }
     }
@@ -1670,6 +1690,7 @@ class ClaudeMCP extends GSController {
 
     local placed = 0;
     local failures = [];
+    local ops = 0;
 
     for (local i = 0; i < path.len(); i += interval) {
       local tile = GSMap.GetTileIndex(path[i].x, path[i].y);
@@ -1690,6 +1711,7 @@ class ClaudeMCP extends GSController {
       } else {
         failures.append({ x = path[i].x, y = path[i].y, error = GSError.GetLastErrorString() });
       }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = { placed = placed, failed = failures } };
@@ -1848,16 +1870,22 @@ class ClaudeMCP extends GSController {
     result.station_a_spot <- { x = spot_a.x, y = spot_a.y, dir = spot_a.dir };
     result.station_b_spot <- { x = spot_b.x, y = spot_b.y, dir = spot_b.dir };
 
+    this.Sleep(1);
+
     // Step 2: Build stations (convert MCP dir 0/1 to GS RailTrack enum)
     local sta_tile = GSMap.GetTileIndex(spot_a.x, spot_a.y);
     if (!GSRail.BuildRailStation(sta_tile, this.MapRailTrack(spot_a.dir), num_plat, plat_len, GSStation.STATION_NEW)) {
       return { success = false, error = "Station A failed: " + GSError.GetLastErrorString() };
     }
 
+    this.Sleep(1);
+
     local stb_tile = GSMap.GetTileIndex(spot_b.x, spot_b.y);
     if (!GSRail.BuildRailStation(stb_tile, this.MapRailTrack(spot_b.dir), num_plat, plat_len, GSStation.STATION_NEW)) {
       return { success = false, error = "Station B failed: " + GSError.GetLastErrorString() };
     }
+
+    this.Sleep(1);
 
     // Step 3: Calculate connection points (station edges facing each other)
     local town_b_loc = GSTown.GetLocation(town_b);
@@ -1870,6 +1898,8 @@ class ClaudeMCP extends GSController {
 
     result.connection_a <- conn_a;
     result.connection_b <- conn_b;
+
+    this.Sleep(1);
 
     // Step 4: Pathfind and build rail
     local route = this.CmdBuildRailRoute({
@@ -1889,6 +1919,8 @@ class ClaudeMCP extends GSController {
     result.route_built <- route.result.built;
     result.route_iterations <- route.result.iterations;
 
+    this.Sleep(1);
+
     // Step 5: Place signals
     if (route.result.path.len() > 5) {
       local sig = this.CmdBuildSignalsOnRoute({
@@ -1899,6 +1931,8 @@ class ClaudeMCP extends GSController {
       });
       result.signals_placed <- sig.result.placed;
     }
+
+    this.Sleep(1);
 
     // Step 6: Build depot near station A
     local depot_spot = this.FindDepotNearStation(spot_a, plat_len, num_plat);
@@ -1926,8 +1960,10 @@ class ClaudeMCP extends GSController {
               local wcount = ("num_wagons" in p) ? p.num_wagons : (("wagon_count" in p) ? p.wagon_count : 3);
               local wagons_built = 0;
               for (local w = 0; w < wcount; w++) {
-                GSVehicle.BuildVehicle(depot_tile, p.wagon_id);
-                wagons_built++;
+                local wag_id = GSVehicle.BuildVehicle(depot_tile, p.wagon_id);
+                if (GSVehicle.IsValidVehicle(wag_id) || GSError.GetLastErrorString() == "ERR_NONE") {
+                  wagons_built++;
+                }
               }
               result.wagons_built <- wagons_built;
             }

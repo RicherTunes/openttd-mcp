@@ -990,13 +990,19 @@ class ClaudeMCP extends GSController {
       }
     }
 
+    // Cap coordinate arrays to avoid exceeding admin port packet size (~1400 bytes)
+    local max_coords = 20;
+    if (buildable.len() > max_coords) buildable = buildable.slice(0, max_coords);
+    if (roads.len() > max_coords) roads = roads.slice(0, max_coords);
+    if (water.len() > max_coords) water = water.slice(0, max_coords);
+
     return { success = true, result = {
       town_name = GSTown.GetName(town_id),
       center_x = cx, center_y = cy,
       radius = radius,
       buildable = buildable,
       roads = roads,
-      buildings = buildings,
+      buildings_count = buildings.len(),
       water = water,
       counts = {
         buildable = buildable.len(),

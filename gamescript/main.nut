@@ -1123,12 +1123,17 @@ class ClaudeMCP extends GSController {
         if (adj.len() == 0) continue;
 
         local dist = abs(dx) + abs(dy);
+        // Auto-detect correct stop direction from adjacent road position
+        // Direction 0 = NE-SW (road is on Y axis relative to stop)
+        // Direction 1 = NW-SE (road is on X axis relative to stop)
+        local stop_dir = (adj[0].nx != x) ? 1 : 0;
         local spot = {
           x = x, y = y,
           distance = dist,
           adjacent_road_x = adj[0].nx,
           adjacent_road_y = adj[0].ny,
-          adjacent_road_count = adj.len()
+          adjacent_road_count = adj.len(),
+          stop_direction = stop_dir
         };
 
         // Maintain a sorted top-N list instead of collecting all + sorting

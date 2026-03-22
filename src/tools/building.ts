@@ -876,4 +876,86 @@ export function registerBuildingTools(
       }
     }
   );
+
+  server.registerTool(
+    "demolish_and_build_road",
+    {
+      description:
+        "Atomically demolish tiles and build road in the same game tick. Prevents towns from rebuilding before road is placed. Pass an array of tile coordinates — each tile is demolished then road is built to the next tile.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        tiles: z
+          .array(z.object({ x: z.number(), y: z.number() }))
+          .describe("Array of tile coordinates to demolish and connect with road (max 50)"),
+        road_type: z.number().default(0).describe("Road type ID"),
+      },
+    },
+    async ({ company_id, tiles, road_type }) => {
+      try {
+        const result = await bridge.execute("demolish_and_build_road", {
+          company_id,
+          tiles,
+          road_type,
+        });
+        return {
+          content: [
+            { type: "text", text: JSON.stringify((result as any).result ?? result, null, 2) },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "check_industry_catchment",
+    {
+      description:
+        "Check if a tile is within an industry's station catchment area. Also finds the best nearby tile (road or buildable) that IS within catchment. Use before placing truck stops to ensure cargo will be accepted.",
+      inputSchema: {
+        industry_id: z.number().describe("Industry ID"),
+        x: z.number().describe("Tile X to check"),
+        y: z.number().describe("Tile Y to check"),
+      },
+    },
+    async ({ industry_id, x, y }) => {
+      try {
+        const result = await bridge.execute("check_industry_catchment", {
+          industry_id,
+          x,
+          y,
+        });
+        const r = (result as any).result ?? result;
+        const lines = [
+          `Industry: ${r.industry_name} (${r.industry_id})`,
+          `Checking tile (${r.check_x}, ${r.check_y}): distance=${r.distance}, in_catchment=${r.in_catchment}`,
+        ];
+        if (r.best_spot) {
+          lines.push(
+            `Best spot in catchment: (${r.best_spot.x}, ${r.best_spot.y}) dist=${r.best_spot.distance} is_road=${r.best_spot.is_road}`
+          );
+        } else {
+          lines.push("No suitable spot found in catchment area");
+        }
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }

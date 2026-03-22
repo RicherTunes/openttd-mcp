@@ -196,6 +196,10 @@ class ClaudeMCP extends GSController {
         case "get_game_status":         return this.CmdGetGameStatus(params);
         case "check_road_connection":   return this.CmdCheckRoadConnection(params);
 
+        // === Atomic Operations ===
+        case "demolish_and_build_road": return this.CmdDemolishAndBuildRoad(params);
+        case "check_industry_catchment": return this.CmdCheckIndustryCatchment(params);
+
         default:
           return { success = false, error = "Unknown action: " + action };
       }
@@ -2823,6 +2827,99 @@ class ClaudeMCP extends GSController {
     if (level <= this.log_level) {
       GSLog.Info("[ClaudeMCP] " + msg);
     }
+  }
+
+  // Atomic demolish + build road in same tick (prevents town rebuilding)
+  function CmdDemolishAndBuildRoad(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local tiles = ("tiles" in p) ? p.tiles : [];
+    local road_type = ("road_type" in p) ? p.road_type : 0;
+    GSRoad.SetCurrentRoadType(road_type);
+
+    local built = 0;
+    local failed = [];
+    local ops = 0;
+
+    for (local i = 0; i < tiles.len() && i < 50; i++) {
+      local x = tiles[i].x;
+      local y = tiles[i].y;
+      local tile = GSMap.GetTileIndex(x, y);
+
+      // Demolish and immediately build road in same tick
+      GSTile.DemolishTile(tile);
+
+      if (i + 1 < tiles.len()) {
+        local nx = tiles[i + 1].x;
+        local ny = tiles[i + 1].y;
+        local next_tile = GSMap.GetTileIndex(nx, ny);
+        if (GSRoad.BuildRoad(tile, next_tile)) {
+          built++;
+        } else {
+          failed.append({ x = x, y = y, error = GSError.GetLastErrorString() });
+        }
+      }
+
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    if (failed.len() > 20) failed = failed.slice(0, 20);
+    return { success = true, result = { built = built, failed = failed } };
+  }
+
+  // Check if a tile is within an industry's station catchment area
+  function CmdCheckIndustryCatchment(p) {
+    local industry_id = p.industry_id;
+    local x = p.x;
+    local y = p.y;
+
+    if (!GSIndustry.IsValidIndustry(industry_id)) {
+      return { success = false, error = "Invalid industry ID" };
+    }
+
+    local tile = GSMap.GetTileIndex(x, y);
+    local ind_loc = GSIndustry.GetLocation(industry_id);
+    local ind_x = GSMap.GetTileX(ind_loc);
+    local ind_y = GSMap.GetTileY(ind_loc);
+    local dist = GSIndustry.GetDistanceManhattanToTile(industry_id, tile);
+
+    // Road station catchment is typically 3 tiles
+    local in_catchment = (dist <= 4);
+
+    // Also find the closest buildable+flat tile that IS in catchment
+    local best_spot = null;
+    local best_dist = 999;
+    local ops = 0;
+
+    for (local dy = -5; dy <= 5; dy++) {
+      for (local dx = -5; dx <= 5; dx++) {
+        local cx = ind_x + dx;
+        local cy = ind_y + dy;
+        local ct = GSMap.GetTileIndex(cx, cy);
+        if (!GSMap.IsValidTile(ct)) continue;
+
+        local cd = GSIndustry.GetDistanceManhattanToTile(industry_id, ct);
+        if (cd > 4) continue;
+
+        if (GSRoad.IsRoadTile(ct) && cd < best_dist) {
+          best_dist = cd;
+          best_spot = { x = cx, y = cy, distance = cd, is_road = true };
+        } else if (GSTile.IsBuildable(ct) && GSTile.GetSlope(ct) == 0 && cd < best_dist) {
+          best_dist = cd;
+          best_spot = { x = cx, y = cy, distance = cd, is_road = false };
+        }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+
+    return { success = true, result = {
+      industry_id = industry_id,
+      industry_name = GSIndustry.GetName(industry_id),
+      check_x = x, check_y = y,
+      distance = dist,
+      in_catchment = in_catchment,
+      best_spot = best_spot
+    }};
   }
 
   function Save() { return {}; }

@@ -780,6 +780,7 @@ class ClaudeMCP extends GSController {
       }
 
       local loc = GSVehicle.GetLocation(veh_id);
+      local cargo_type = GSEngine.GetCargoType(GSVehicle.GetEngineType(veh_id));
       vehicles.append({
         id = veh_id,
         name = GSVehicle.GetName(veh_id),
@@ -788,6 +789,9 @@ class ClaudeMCP extends GSController {
         y = GSMap.GetTileY(loc),
         engine_id = GSVehicle.GetEngineType(veh_id),
         age = GSVehicle.GetAge(veh_id),
+        speed = GSVehicle.GetCurrentSpeed(veh_id),
+        cargo_loaded = GSVehicle.GetCargoLoad(veh_id, cargo_type),
+        cargo_capacity = GSVehicle.GetCapacity(veh_id, cargo_type),
         profit_this_year = GSVehicle.GetProfitThisYear(veh_id),
         profit_last_year = GSVehicle.GetProfitLastYear(veh_id),
         state = GSVehicle.GetState(veh_id),

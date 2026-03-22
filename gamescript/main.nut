@@ -190,11 +190,22 @@ class ClaudeMCP extends GSController {
 
         // === High-Level Auto-Route ===
         case "connect_industries":      return this.CmdConnectIndustries(params);
+        case "connect_towns_bus":       return this.CmdConnectTownsBus(params);
+        case "replace_old_vehicles":    return this.CmdReplaceOldVehicles(params);
 
         // === Emergency & Status ===
         case "stop_all_vehicles":       return this.CmdStopAllVehicles(params);
         case "get_game_status":         return this.CmdGetGameStatus(params);
+        case "get_date":                return this.CmdGetDate();
         case "check_road_connection":   return this.CmdCheckRoadConnection(params);
+
+        // === Town & Station Info ===
+        case "get_town_rating":         return this.CmdGetTownRating(params);
+        case "plant_trees":             return this.CmdPlantTrees(params);
+        case "get_station_cargo":       return this.CmdGetStationCargo(params);
+
+        // === Finance ===
+        case "set_loan":                return this.CmdSetLoan(params);
 
         // === Atomic Operations ===
         case "demolish_and_build_road": return this.CmdDemolishAndBuildRoad(params);
@@ -2791,6 +2802,243 @@ class ClaudeMCP extends GSController {
     return { success = true, result = result };
   }
 
+  /**
+   * Connect two towns with a complete bus route.
+   * Finds drive-through bus stop locations, builds connecting road,
+   * depot, buys buses, sets orders, and starts them.
+   */
+  function CmdConnectTownsBus(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local town_a = p.town_a_id;
+    local town_b = p.town_b_id;
+    local bus_count = ("bus_count" in p) ? p.bus_count : 2;
+    local road_type = ("road_type" in p) ? p.road_type : 0;
+    local engine_id = ("engine_id" in p) ? p.engine_id : -1;
+
+    if (!GSTown.IsValidTown(town_a)) return { success = false, error = "Invalid town_a_id" };
+    if (!GSTown.IsValidTown(town_b)) return { success = false, error = "Invalid town_b_id" };
+
+    local result = {};
+    GSRoad.SetCurrentRoadType(road_type);
+
+    result.town_a_name <- GSTown.GetName(town_a);
+    result.town_b_name <- GSTown.GetName(town_b);
+
+    // Phase 1: Get town locations
+    local loc_a = GSTown.GetLocation(town_a);
+    local loc_b = GSTown.GetLocation(town_b);
+    local ax = GSMap.GetTileX(loc_a);
+    local ay = GSMap.GetTileY(loc_a);
+    local bx = GSMap.GetTileX(loc_b);
+    local by = GSMap.GetTileY(loc_b);
+    this.Sleep(1);
+
+    // Phase 2: Find road tiles near town centers for drive-through stops
+    local stop_a_tile = this.FindRoadTileNear(ax, ay, 5);
+    local stop_b_tile = this.FindRoadTileNear(bx, by, 5);
+
+    if (stop_a_tile == null) return { success = false, error = "No road tile found near town A" };
+    if (stop_b_tile == null) return { success = false, error = "No road tile found near town B" };
+    this.Sleep(1);
+
+    // Phase 3: Build connecting road (L-shaped: horizontal then vertical)
+    local mid_x = stop_b_tile.x;
+    local mid_y = stop_a_tile.y;
+
+    local built1 = 0;
+    local built2 = 0;
+
+    // Horizontal leg
+    if (stop_a_tile.x != mid_x) {
+      local step = (mid_x > stop_a_tile.x) ? 1 : -1;
+      local x = stop_a_tile.x;
+      while (x != mid_x) {
+        local from_t = GSMap.GetTileIndex(x, stop_a_tile.y);
+        local to_t = GSMap.GetTileIndex(x + step, stop_a_tile.y);
+        if (GSRoad.BuildRoad(from_t, to_t)) built1++;
+        x += step;
+        if (built1 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+    this.Sleep(1);
+
+    // Vertical leg
+    if (mid_y != stop_b_tile.y) {
+      local step = (stop_b_tile.y > mid_y) ? 1 : -1;
+      local y = mid_y;
+      while (y != stop_b_tile.y) {
+        local from_t = GSMap.GetTileIndex(mid_x, y);
+        local to_t = GSMap.GetTileIndex(mid_x, y + step);
+        if (GSRoad.BuildRoad(from_t, to_t)) built2++;
+        y += step;
+        if (built2 % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+    this.Sleep(1);
+
+    result.road_built <- built1 + built2;
+
+    // Phase 4: Build drive-through bus stops (try both directions)
+    local stop_a_ok = false;
+    for (local dir = 0; dir <= 1 && !stop_a_ok; dir++) {
+      stop_a_ok = GSRoad.BuildDriveThroughRoadStop(
+        GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y),
+        GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y),
+        road_type, GSStation.STATION_NEW, false, dir  // false = bus stop
+      );
+    }
+    if (!stop_a_ok) return { success = false, error = "Failed to build bus stop in town A" };
+    this.Sleep(1);
+
+    local stop_b_ok = false;
+    for (local dir = 0; dir <= 1 && !stop_b_ok; dir++) {
+      stop_b_ok = GSRoad.BuildDriveThroughRoadStop(
+        GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y),
+        GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y),
+        road_type, GSStation.STATION_NEW, false, dir
+      );
+    }
+    if (!stop_b_ok) return { success = false, error = "Failed to build bus stop in town B" };
+    this.Sleep(1);
+
+    // Phase 5: Build depot near town A
+    local depot_spot = this.FindBuildableNear(stop_a_tile.x, stop_a_tile.y, 5);
+    if (depot_spot == null) return { success = false, error = "No depot spot near town A" };
+
+    local depot_tile = GSMap.GetTileIndex(depot_spot.x, depot_spot.y);
+    local depot_ok = false;
+    for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
+      depot_ok = GSRoad.BuildRoadDepot(depot_tile, GSMap.GetTileIndex(
+        depot_spot.x + ((dir == 0) ? -1 : (dir == 2) ? 1 : 0),
+        depot_spot.y + ((dir == 1) ? -1 : (dir == 3) ? 1 : 0)
+      ));
+    }
+    // Connect depot to road
+    if (depot_ok) {
+      GSRoad.BuildRoad(depot_tile, GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y));
+    }
+    this.Sleep(1);
+
+    // Phase 6: Get station IDs
+    local stn_a = GSStation.GetStationID(GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y));
+    local stn_b = GSStation.GetStationID(GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y));
+
+    result.station_a <- stn_a;
+    result.station_b <- stn_b;
+    result.depot <- { x = depot_spot.x, y = depot_spot.y };
+
+    // Phase 7: Auto-find bus engine if not specified
+    if (engine_id < 0) {
+      local eng_list = GSEngineList(GSVehicle.VT_ROAD);
+      local engs = [];
+      foreach (eng, _ in eng_list) engs.append(eng);
+      for (local i = 0; i < engs.len(); i++) {
+        local eng = engs[i];
+        if (GSEngine.IsBuildable(eng) && GSEngine.GetCargoType(eng) == 0) {
+          engine_id = eng;
+          break;
+        }
+        if (i % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+
+    if (engine_id < 0) {
+      result.buses_bought <- 0;
+      result.note <- "No bus engine found. Buy buses manually at the depot.";
+      return { success = true, result = result };
+    }
+
+    // Phase 8: Buy buses and set orders
+    local buses = [];
+    for (local t = 0; t < bus_count; t++) {
+      local veh = GSVehicle.BuildVehicle(depot_tile, engine_id);
+      if (GSVehicle.IsValidVehicle(veh)) {
+        GSOrder.AppendOrder(veh, GSStation.GetLocation(stn_a), 0);  // 0 = normal
+        GSOrder.AppendOrder(veh, GSStation.GetLocation(stn_b), 0);
+        GSVehicle.StartStopVehicle(veh);
+        buses.append(veh);
+      }
+      this.Sleep(1);
+    }
+
+    result.engine_id <- engine_id;
+    result.buses_bought <- buses.len();
+    if (buses.len() > 10) {
+      local capped = [];
+      for (local i = 0; i < 10; i++) capped.append(buses[i]);
+      result.bus_ids <- capped;
+    } else {
+      result.bus_ids <- buses;
+    }
+
+    return { success = true, result = result };
+  }
+
+  /**
+   * Find and replace aging vehicles (>80% max age).
+   * Vehicles in depot are sold and replaced with same engine type, orders restored.
+   * Vehicles still running are sent to depot - run again later to complete.
+   */
+  function CmdReplaceOldVehicles(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local veh_list = GSVehicleList();
+    local ids = [];
+    foreach (vid, _ in veh_list) ids.append(vid);
+
+    local replaced = 0;
+    local sent_to_depot = 0;
+    local ops = 0;
+
+    for (local i = 0; i < ids.len(); i++) {
+      local vid = ids[i];
+      local age = GSVehicle.GetAge(vid);
+      local max_age = GSVehicle.GetMaxAge(vid);
+
+      if (age > max_age * 80 / 100) {
+        if (GSVehicle.IsStoppedInDepot(vid)) {
+          // Already in depot - sell and rebuy
+          local engine = GSVehicle.GetEngineType(vid);
+          local depot_tile = GSVehicle.GetLocation(vid);
+
+          // Copy orders before selling
+          local order_count = GSOrder.GetOrderCount(vid);
+          local orders = [];
+          for (local o = 0; o < order_count; o++) {
+            orders.append({
+              dest = GSOrder.GetOrderDestination(vid, o),
+              flags = GSOrder.GetOrderFlags(vid, o)
+            });
+          }
+
+          GSVehicle.SellVehicle(vid);
+
+          // Buy replacement
+          local new_vid = GSVehicle.BuildVehicle(depot_tile, engine);
+          if (GSVehicle.IsValidVehicle(new_vid)) {
+            // Restore orders
+            for (local o = 0; o < orders.len(); o++) {
+              GSOrder.AppendOrder(new_vid, orders[o].dest, orders[o].flags);
+            }
+            GSVehicle.StartStopVehicle(new_vid);
+            replaced++;
+          }
+        } else {
+          // Send to depot first
+          GSVehicle.SendVehicleToDepot(vid);
+          sent_to_depot++;
+        }
+      }
+
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+
+    return { success = true, result = {
+      replaced = replaced,
+      sent_to_depot = sent_to_depot,
+      total_checked = ids.len()
+    }};
+  }
+
   // Helper: find a flat buildable tile near given coordinates
   function FindBuildableNear(cx, cy, radius) {
     for (local r = 1; r <= radius; r++) {
@@ -2919,6 +3167,159 @@ class ClaudeMCP extends GSController {
       distance = dist,
       in_catchment = in_catchment,
       best_spot = best_spot
+    }};
+  }
+
+  // =====================================================================
+  // TOWN RATING & TREES
+  // =====================================================================
+
+  function CmdGetTownRating(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local town_id = p.town_id;
+    if (!GSTown.IsValidTown(town_id)) return { success = false, error = "Invalid town ID" };
+
+    local rating = GSTown.GetRating(town_id, GSCompany.ResolveCompanyID(GSCompany.COMPANY_SELF));
+    return { success = true, result = {
+      town_id = town_id,
+      town_name = GSTown.GetName(town_id),
+      rating = rating,
+      rating_label = this.RatingLabel(rating)
+    }};
+  }
+
+  function RatingLabel(r) {
+    if (r >= 800) return "outstanding";
+    if (r >= 600) return "good";
+    if (r >= 400) return "mediocre";
+    if (r >= 200) return "poor";
+    if (r >= 0) return "appalling";
+    return "hostile";
+  }
+
+  function CmdPlantTrees(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local cx = p.x;
+    local cy = p.y;
+    local radius = ("radius" in p) ? p.radius : 3;
+    local planted = 0;
+    local ops = 0;
+
+    for (local dy = -radius; dy <= radius; dy++) {
+      for (local dx = -radius; dx <= radius; dx++) {
+        local tile = GSMap.GetTileIndex(cx + dx, cy + dy);
+        if (GSMap.IsValidTile(tile) && GSTile.IsBuildable(tile) && !GSTile.HasTreeOnTile(tile)) {
+          if (GSTile.PlantTree(tile)) planted++;
+        }
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+    }
+
+    return { success = true, result = { planted = planted } };
+  }
+
+  // =====================================================================
+  // STATION CARGO WAITING
+  // =====================================================================
+
+  function CmdGetStationCargo(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local station_id = p.station_id;
+
+    if (!GSBaseStation.IsValidBaseStation(station_id)) {
+      return { success = false, error = "Invalid station ID" };
+    }
+
+    local waiting = [];
+    local cargo_list = GSCargoList();
+    local cargo_ids = [];
+    foreach (cid, _ in cargo_list) cargo_ids.append(cid);
+
+    for (local i = 0; i < cargo_ids.len(); i++) {
+      local cid = cargo_ids[i];
+      local amount = GSStation.GetCargoWaiting(station_id, cid);
+      if (amount > 0) {
+        waiting.append({
+          cargo_id = cid,
+          cargo_name = GSCargo.GetName(cid),
+          amount = amount,
+          rating = GSStation.GetCargoRating(station_id, cid)
+        });
+      }
+    }
+
+    return { success = true, result = {
+      station_id = station_id,
+      station_name = GSBaseStation.GetName(station_id),
+      cargo_waiting = waiting
+    }};
+  }
+
+  // =====================================================================
+  // LOAN MANAGEMENT
+  // =====================================================================
+
+  function CmdSetLoan(p) {
+    local company_mode = GSCompanyMode(p.company_id);
+    local action = ("action" in p) ? p.action : "info";
+
+    local current = GSCompany.GetLoanAmount();
+    local max_loan = GSCompany.GetMaxLoanAmount();
+    local interval = GSCompany.GetLoanInterval();
+
+    if (action == "info") {
+      return { success = true, result = {
+        current_loan = current,
+        max_loan = max_loan,
+        loan_interval = interval
+      }};
+    }
+
+    if (action == "repay") {
+      local amount = ("amount" in p) ? p.amount : interval;
+      local new_loan = current - amount;
+      if (new_loan < 0) new_loan = 0;
+      // Round to loan interval
+      new_loan = (new_loan / interval) * interval;
+      if (GSCompany.SetLoanAmount(new_loan)) {
+        return { success = true, result = { new_loan = new_loan, repaid = current - new_loan } };
+      }
+      return { success = false, error = "Cannot repay - insufficient funds?" };
+    }
+
+    if (action == "borrow") {
+      local amount = ("amount" in p) ? p.amount : interval;
+      local new_loan = current + amount;
+      if (new_loan > max_loan) new_loan = max_loan;
+      new_loan = (new_loan / interval) * interval;
+      if (GSCompany.SetLoanAmount(new_loan)) {
+        return { success = true, result = { new_loan = new_loan, borrowed = new_loan - current } };
+      }
+      return { success = false, error = "Cannot borrow more" };
+    }
+
+    if (action == "repay_all") {
+      if (GSCompany.SetLoanAmount(0)) {
+        return { success = true, result = { new_loan = 0, repaid = current } };
+      }
+      return { success = false, error = "Cannot repay all - insufficient funds" };
+    }
+
+    return { success = false, error = "Unknown action. Use: info, repay, borrow, repay_all" };
+  }
+
+  function CmdGetDate() {
+    local date = GSDate.GetCurrentDate();
+    local year = GSDate.GetYear(date);
+    local month = GSDate.GetMonth(date);
+    local day = GSDate.GetDayOfMonth(date);
+    return { success = true, result = {
+      year = year,
+      month = month,
+      day = day,
+      date_string = year + "-" +
+        (month < 10 ? "0" : "") + month + "-" +
+        (day < 10 ? "0" : "") + day
     }};
   }
 

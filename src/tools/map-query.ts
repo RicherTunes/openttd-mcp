@@ -853,4 +853,123 @@ export function registerMapQueryTools(
       }
     }
   );
+
+  // =====================================================================
+  // TOWN RATING & TREES
+  // =====================================================================
+
+  server.registerTool(
+    "get_town_rating",
+    {
+      description:
+        "Get a company's rating with a specific town. Rating affects what you can build in the town's authority area. Returns numeric rating and label (outstanding/good/mediocre/poor/appalling/hostile).",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        town_id: z.number().describe("Town ID"),
+      },
+    },
+    async ({ company_id, town_id }) => {
+      try {
+        const result = await bridge.execute("get_town_rating", {
+          company_id,
+          town_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "plant_trees",
+    {
+      description:
+        "Plant trees around a location. Trees improve the local authority rating with nearby towns. Useful before building stations if your rating is too low.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        x: z.number().describe("Center X coordinate"),
+        y: z.number().describe("Center Y coordinate"),
+        radius: z
+          .number()
+          .optional()
+          .describe("Planting radius (default 3)"),
+      },
+    },
+    async ({ company_id, x, y, radius }) => {
+      try {
+        const params: Record<string, unknown> = { company_id, x, y };
+        if (radius !== undefined) params.radius = radius;
+        const result = await bridge.execute("plant_trees", params);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_station_cargo",
+    {
+      description:
+        "Get cargo waiting at a station. Shows each cargo type with amount waiting and station rating for that cargo. Use to monitor station performance.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        station_id: z.number().describe("Station ID"),
+      },
+    },
+    async ({ company_id, station_id }) => {
+      try {
+        const result = await bridge.execute("get_station_cargo", {
+          company_id,
+          station_id,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }

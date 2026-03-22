@@ -472,4 +472,41 @@ export function registerVehicleTools(
       }
     }
   );
+
+  server.registerTool(
+    "replace_old_vehicles",
+    {
+      description:
+        "Find and replace aging vehicles (>80% max age). Vehicles already in depot are sold and replaced with same engine type, orders restored. Vehicles still running are sent to depot — run again later to complete replacement.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+      },
+    },
+    async ({ company_id }) => {
+      try {
+        const result = await bridge.execute(
+          "replace_old_vehicles",
+          { company_id },
+          120000
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Vehicle replacement complete. ${JSON.stringify(result, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to replace vehicles: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }

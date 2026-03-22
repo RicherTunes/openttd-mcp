@@ -38,7 +38,7 @@ export function createServer(): {
   // Register all tool groups (adminClient cast satisfies AdminClient type for tools)
   registerConnectionTools(server, adminClient);
   registerServerInfoTools(server, adminClient, bridge);
-  registerGameControlTools(server, adminClient);
+  registerGameControlTools(server, adminClient, bridge);
   registerRconTools(server, adminClient);
   registerChatTools(server, adminClient);
   registerCompanyTools(server, adminClient);

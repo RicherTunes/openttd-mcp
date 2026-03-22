@@ -32,6 +32,17 @@ export function registerServerInfoTools(
       }
       const info = client.serverInfo;
       const landscape = LANDSCAPES[info.landscape] ?? `unknown(${info.landscape})`;
+      // Try to get current date from GameScript (more reliable than admin port polling)
+      let currentDate = client.currentDateStr;
+      if (!currentDate) {
+        try {
+          const dateResult = await bridge.execute("get_date", {});
+          const dateInfo = dateResult as { date_string: string };
+          currentDate = dateInfo.date_string;
+        } catch {
+          // Fall back to cached value (may be empty)
+        }
+      }
       return {
         content: [
           {
@@ -47,7 +58,7 @@ export function registerServerInfoTools(
                 startDate: ottdDateToString(info.startDate),
                 mapSizeX: info.mapSizeX,
                 mapSizeY: info.mapSizeY,
-                currentDate: client.currentDateStr,
+                currentDate,
               },
               null,
               2
@@ -70,17 +81,32 @@ export function registerServerInfoTools(
           content: [{ type: "text", text: "Not connected to server." }],
         };
       }
-      client.pollDate();
-      // Small delay to let the response arrive
-      await new Promise((r) => setTimeout(r, 200));
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Current game date: ${client.currentDateStr}`,
-          },
-        ],
-      };
+      // Primary: use GameScript get_date command (reliable, works with encryption)
+      try {
+        const result = await bridge.execute("get_date", {});
+        const dateInfo = result as { year: number; month: number; day: number; date_string: string };
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Current game date: ${dateInfo.date_string}`,
+            },
+          ],
+        };
+      } catch {
+        // Fallback: admin port date polling
+        client.pollDate();
+        await new Promise((r) => setTimeout(r, 200));
+        const dateStr = client.currentDateStr || "(unavailable)";
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Current game date: ${dateStr}`,
+            },
+          ],
+        };
+      }
     }
   );
 

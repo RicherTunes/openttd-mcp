@@ -958,4 +958,66 @@ export function registerBuildingTools(
       }
     }
   );
+
+  server.registerTool(
+    "connect_towns_bus",
+    {
+      description:
+        "Connect two towns with a complete bus route. Automatically finds drive-through stop locations on town roads, builds connecting road, depot, buys buses, and sets orders.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID"),
+        town_a_id: z.number().describe("First town ID"),
+        town_b_id: z.number().describe("Second town ID"),
+        bus_count: z
+          .number()
+          .default(2)
+          .describe("Number of buses to buy (default 2)"),
+        engine_id: z
+          .number()
+          .optional()
+          .describe(
+            "Bus engine ID (from get_engines). Omit to auto-find first available bus engine."
+          ),
+        road_type: z
+          .number()
+          .default(0)
+          .describe("Road type ID (0 = normal road)"),
+      },
+    },
+    async ({ company_id, town_a_id, town_b_id, bus_count, engine_id, road_type }) => {
+      try {
+        const params: Record<string, unknown> = {
+          company_id,
+          town_a_id,
+          town_b_id,
+          bus_count,
+          road_type,
+        };
+        if (engine_id !== undefined) params.engine_id = engine_id;
+
+        const result = await bridge.execute(
+          "connect_towns_bus",
+          params,
+          120000
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Bus route established! ${JSON.stringify(result, null, 2)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to connect towns with bus route: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 }

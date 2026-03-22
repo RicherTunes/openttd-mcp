@@ -1,14 +1,16 @@
 /**
- * Game control tools - pause, save, load, new game.
+ * Game control tools - pause, save, load, new game, loan management.
  */
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AdminClient } from "../admin-client.js";
+import { GameScriptBridge } from "../gamescript/bridge.js";
 
 export function registerGameControlTools(
   server: McpServer,
-  client: AdminClient
+  client: AdminClient,
+  bridge?: GameScriptBridge
 ): void {
   server.registerTool(
     "pause_game",
@@ -146,4 +148,54 @@ export function registerGameControlTools(
       };
     }
   );
+
+  // =====================================================================
+  // LOAN MANAGEMENT (via GameScript bridge)
+  // =====================================================================
+
+  if (bridge) {
+    server.registerTool(
+      "set_loan",
+      {
+        description:
+          'Manage company loan. Actions: "info" (get current loan, max, interval), "borrow" (increase loan), "repay" (decrease loan), "repay_all" (pay off entire loan). Amount defaults to one loan interval if not specified.',
+        inputSchema: {
+          company_id: z.number().describe("Company ID"),
+          action: z
+            .enum(["info", "repay", "borrow", "repay_all"])
+            .describe("Loan action to perform"),
+          amount: z
+            .number()
+            .optional()
+            .describe(
+              "Amount to borrow or repay (defaults to one loan interval)"
+            ),
+        },
+      },
+      async ({ company_id, action, amount }) => {
+        try {
+          const params: Record<string, unknown> = { company_id, action };
+          if (amount !== undefined) params.amount = amount;
+          const result = await bridge.execute("set_loan", params);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (err) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            ],
+          };
+        }
+      }
+    );
+  }
 }

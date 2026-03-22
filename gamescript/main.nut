@@ -37,6 +37,7 @@ class ClaudeMCP extends GSController {
   }
 
   function HandleEvents() {
+    local events_processed = 0;
     while (GSEventController.IsEventWaiting()) {
       local event = GSEventController.GetNextEvent();
       if (event == null) continue;
@@ -56,6 +57,9 @@ class ClaudeMCP extends GSController {
 
       local result = this.DispatchCommand(data);
       this.SendResponse(data.id, result);
+
+      // Yield between events to avoid opcode overflow from queued commands
+      if (++events_processed % 3 == 0) this.Sleep(1);
     }
   }
 
@@ -179,8 +183,10 @@ class ClaudeMCP extends GSController {
           return { success = false, error = "Unknown action: " + action };
       }
     } catch (e) {
-      this.Log(1, "Error dispatching " + action + ": " + e);
-      return { success = false, error = "Error: " + e };
+      local err_msg = "";
+      try { err_msg = "" + e; } catch (e2) { err_msg = "(non-string exception)"; }
+      this.Log(1, "Error dispatching " + action + ": " + err_msg);
+      return { success = false, error = "Error: " + err_msg };
     }
   }
 
@@ -608,6 +614,7 @@ class ClaudeMCP extends GSController {
   function CmdGetTowns() {
     local towns = [];
     local town_list = GSTownList();
+    local ops = 0;
 
     foreach (town_id, _ in town_list) {
       local loc = GSTown.GetLocation(town_id);
@@ -618,6 +625,7 @@ class ClaudeMCP extends GSController {
         x = GSMap.GetTileX(loc),
         y = GSMap.GetTileY(loc)
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = towns };
@@ -645,6 +653,7 @@ class ClaudeMCP extends GSController {
   function CmdGetIndustries() {
     local industries = [];
     local ind_list = GSIndustryList();
+    local ops = 0;
 
     foreach (ind_id, _ in ind_list) {
       local loc = GSIndustry.GetLocation(ind_id);
@@ -657,6 +666,7 @@ class ClaudeMCP extends GSController {
         x = GSMap.GetTileX(loc),
         y = GSMap.GetTileY(loc)
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = industries };
@@ -731,6 +741,7 @@ class ClaudeMCP extends GSController {
     local company_mode = GSCompanyMode(p.company_id);
     local vehicles = [];
     local veh_list = GSVehicleList();
+    local ops = 0;
 
     foreach (veh_id, _ in veh_list) {
       if ("vehicle_type" in p && p.vehicle_type != null) {
@@ -760,6 +771,7 @@ class ClaudeMCP extends GSController {
         in_depot = GSVehicle.IsStoppedInDepot(veh_id),
         order_count = GSOrder.GetOrderCount(veh_id)
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = vehicles };
@@ -769,6 +781,7 @@ class ClaudeMCP extends GSController {
     local company_mode = GSCompanyMode(p.company_id);
     local stations = [];
     local stn_list = GSStationList(GSStation.STATION_ANY);
+    local ops = 0;
 
     foreach (stn_id, _ in stn_list) {
       local loc = GSBaseStation.GetLocation(stn_id);
@@ -783,6 +796,7 @@ class ClaudeMCP extends GSController {
         has_airport = GSStation.HasStationType(stn_id, GSStation.STATION_AIRPORT),
         has_dock = GSStation.HasStationType(stn_id, GSStation.STATION_DOCK)
       });
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = stations };
@@ -801,6 +815,7 @@ class ClaudeMCP extends GSController {
     }
 
     local eng_list = GSEngineList(vt);
+    local ops = 0;
     foreach (eng_id, _ in eng_list) {
       try {
         if (!GSEngine.IsBuildable(eng_id)) continue;
@@ -827,6 +842,7 @@ class ClaudeMCP extends GSController {
       } catch (e) {
         this.Log(1, "Error reading engine " + eng_id + ": " + e);
       }
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 
     return { success = true, result = engines };
@@ -990,6 +1006,7 @@ class ClaudeMCP extends GSController {
 
     local radius = ("radius" in p) ? p.radius : 15;
     local max_results = ("max_results" in p) ? p.max_results : 10;
+    if (max_results <= 0) return { success = true, result = [] };
     local loc = GSTown.GetLocation(town_id);
     local cx = GSMap.GetTileX(loc);
     local cy = GSMap.GetTileY(loc);
@@ -1051,6 +1068,7 @@ class ClaudeMCP extends GSController {
 
     local radius = ("radius" in p) ? p.radius : 15;
     local max_results = ("max_results" in p) ? p.max_results : 5;
+    if (max_results <= 0) return { success = true, result = [] };
     local loc = GSTown.GetLocation(town_id);
     local cx = GSMap.GetTileX(loc);
     local cy = GSMap.GetTileY(loc);
@@ -1570,12 +1588,19 @@ class ClaudeMCP extends GSController {
       return { success = false, error = "No path found after " + iterations + " iterations" };
     }
 
-    // Reconstruct path
+    // Reconstruct path (append + reverse to avoid O(N²) insert(0,...))
     local path = [];
     local key = found_key;
     while (key != -1) {
-      path.insert(0, state_info[key]);
+      path.append(state_info[key]);
       key = came_from[key];
+    }
+    // Reverse in-place
+    local plen = path.len();
+    for (local i = 0; i < plen / 2; i++) {
+      local tmp = path[i];
+      path[i] = path[plen - 1 - i];
+      path[plen - 1 - i] = tmp;
     }
 
     // Build rail along path
@@ -1700,6 +1725,7 @@ class ClaudeMCP extends GSController {
               local th = GSTile.GetMaxHeight(t);
               if (elev == -1) elev = th;
               else if (th != elev) { ok = false; break; }
+              ops++;
             }
           }
 

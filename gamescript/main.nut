@@ -181,6 +181,9 @@ class ClaudeMCP extends GSController {
         case "build_signals_on_route":  return this.CmdBuildSignalsOnRoute(params);
         case "connect_towns_rail":      return this.CmdConnectTownsRail(params);
 
+        // === Advanced Road (A* Pathfinding) ===
+        case "build_road_route":        return this.CmdBuildRoadRoute(params);
+
         default:
           return { success = false, error = "Unknown action: " + action };
       }
@@ -1729,6 +1732,190 @@ class ClaudeMCP extends GSController {
       iterations = iterations,
       path = path_coords
     }};
+  }
+
+  // =====================================================================
+  // A* PATHFINDING - Road Route Builder
+  // =====================================================================
+
+  function CmdBuildRoadRoute(p) {
+    try {
+      local company_mode = GSCompanyMode(p.company_id);
+      local road_type = ("road_type" in p) ? p.road_type : 0;
+      GSRoad.SetCurrentRoadType(road_type);
+
+      local sx = p.from_x, sy = p.from_y;
+      local gx = p.to_x,   gy = p.to_y;
+      local max_iter = ("max_iterations" in p) ? p.max_iterations : 10000;
+
+      // A* search — state is just (x, y), no direction needed for roads
+      local open = this.HeapCreate();
+      local g_score = {};
+      local came_from = {};
+      local state_info = {};  // key -> {x, y}
+
+      // Encode (x, y) into single integer for hash key (no dir for roads)
+      // Supports maps up to 4096x4096 (12 bits x, 12 bits y)
+      local start_key = (sx << 12) | sy;
+      g_score[start_key] <- 0;
+      state_info[start_key] <- { x = sx, y = sy };
+      came_from[start_key] <- -1;
+      local h = this.AStarHeuristic(sx, sy, gx, gy);
+      this.HeapPush(open, h, start_key);
+
+      local iterations = 0;
+      local found_key = -1;
+      local visited = {};
+      local ops = 0;
+
+      // Direction offsets: 4 cardinal neighbors
+      local dx = [1, 0, -1, 0];
+      local dy = [0, 1, 0, -1];
+
+      while (open.len() > 0 && iterations < max_iter) {
+        iterations++;
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+
+        local current = this.HeapPop(open);
+        local cur_key = current.v;
+
+        if (cur_key in visited) continue;
+        visited[cur_key] <- true;
+
+        local cur = state_info[cur_key];
+        local cur_g = g_score[cur_key];
+
+        // Goal check
+        if (cur.x == gx && cur.y == gy) {
+          found_key = cur_key;
+          break;
+        }
+
+        // Determine incoming direction for turn cost
+        local prev_dx = 0;
+        local prev_dy = 0;
+        if (came_from[cur_key] != -1) {
+          local prev = state_info[came_from[cur_key]];
+          prev_dx = cur.x - prev.x;
+          prev_dy = cur.y - prev.y;
+        }
+
+        // Try all 4 cardinal neighbors
+        for (local d = 0; d < 4; d++) {
+          local nx = cur.x + dx[d];
+          local ny = cur.y + dy[d];
+
+          local next_tile = GSMap.GetTileIndex(nx, ny);
+          if (!GSMap.IsValidTile(next_tile)) continue;
+          if (GSTile.IsWaterTile(next_tile)) continue;
+
+          // Check if we can use this tile
+          local is_buildable = GSTile.IsBuildable(next_tile);
+          local is_road = GSRoad.IsRoadTile(next_tile);
+          local needs_demolish = false;
+
+          if (!is_buildable && !is_road) {
+            // Try demolish as last resort (skip water, already checked)
+            needs_demolish = true;
+          }
+
+          // Cost calculation: straight=1, turn=2, slope=+3, demolish=+10
+          local is_turn = false;
+          if (prev_dx != 0 || prev_dy != 0) {
+            is_turn = (dx[d] != prev_dx || dy[d] != prev_dy);
+          }
+          local move_cost = is_turn ? 2 : 1;
+
+          local cur_tile = GSMap.GetTileIndex(cur.x, cur.y);
+          local cur_h = GSTile.GetMaxHeight(cur_tile);
+          local next_h = GSTile.GetMaxHeight(next_tile);
+          if (cur_h != next_h) move_cost += 3;
+
+          if (needs_demolish) move_cost += 10;
+
+          local next_key = (nx << 12) | ny;
+          local tentative_g = cur_g + move_cost;
+
+          if (!(next_key in g_score) || tentative_g < g_score[next_key]) {
+            g_score[next_key] <- tentative_g;
+            came_from[next_key] <- cur_key;
+            state_info[next_key] <- { x = nx, y = ny };
+            local f = tentative_g + this.AStarHeuristic(nx, ny, gx, gy);
+            this.HeapPush(open, f, next_key);
+          }
+        }
+      }
+
+      if (found_key == -1) {
+        return { success = false, error = "No road path found after " + iterations + " iterations" };
+      }
+
+      // Reconstruct path (append + reverse to avoid O(N²) insert(0,...))
+      local path = [];
+      local key = found_key;
+      while (key != -1) {
+        path.append(state_info[key]);
+        key = came_from[key];
+      }
+      // Reverse in-place
+      local plen = path.len();
+      for (local i = 0; i < plen / 2; i++) {
+        local tmp = path[i];
+        path[i] = path[plen - 1 - i];
+        path[plen - 1 - i] = tmp;
+      }
+
+      // Build road along path
+      local built = 0;
+      local failures = [];
+      ops = 0;
+
+      for (local i = 0; i + 1 < path.len(); i++) {
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+
+        local from_tile = GSMap.GetTileIndex(path[i].x, path[i].y);
+        local to_tile = GSMap.GetTileIndex(path[i + 1].x, path[i + 1].y);
+
+        // Try demolish if the target tile isn't buildable or road
+        local target_buildable = GSTile.IsBuildable(to_tile);
+        local target_is_road = GSRoad.IsRoadTile(to_tile);
+        if (!target_buildable && !target_is_road) {
+          GSTile.DemolishTile(to_tile);
+        }
+
+        if (GSRoad.BuildRoad(from_tile, to_tile)) {
+          built++;
+        } else {
+          local err = GSError.GetLastErrorString();
+          if (err != "ERR_ALREADY_BUILT") {
+            if (failures.len() < 20) {
+              failures.append({ x = path[i + 1].x, y = path[i + 1].y, error = err });
+            }
+          } else {
+            built++;  // Already built counts as success
+          }
+        }
+      }
+
+      // Build path summary (cap to 50 entries to avoid packet overflow)
+      local path_coords = [];
+      foreach (pt in path) {
+        path_coords.append({ x = pt.x, y = pt.y });
+      }
+      if (path_coords.len() > 50) path_coords = path_coords.slice(0, 50);
+
+      return { success = true, result = {
+        path_length = path.len(),
+        built = built,
+        failed = failures,
+        iterations = iterations,
+        path = path_coords
+      }};
+    } catch (e) {
+      local err_msg = "";
+      try { err_msg = "" + e; } catch (e2) { err_msg = "(non-string exception)"; }
+      return { success = false, error = "Road route error: " + err_msg };
+    }
   }
 
   // =====================================================================

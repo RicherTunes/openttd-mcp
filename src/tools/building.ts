@@ -623,6 +623,57 @@ export function registerBuildingTools(
   );
 
   server.registerTool(
+    "build_road_route",
+    {
+      description:
+        "Build a pathfound road route between two points using A* pathfinding. Automatically routes around water, buildings, and terrain. Can demolish buildings as a last resort. Much more reliable than manual build_road calls in dense towns.",
+      inputSchema: {
+        company_id: z.number().describe("Company ID that will own the road"),
+        from_x: z.number().describe("Start tile X coordinate"),
+        from_y: z.number().describe("Start tile Y coordinate"),
+        to_x: z.number().describe("End tile X coordinate"),
+        to_y: z.number().describe("End tile Y coordinate"),
+        road_type: z
+          .number()
+          .default(0)
+          .describe("Road type ID (0 = normal road)"),
+        max_iterations: z
+          .number()
+          .default(10000)
+          .describe(
+            "Maximum A* iterations (increase for very long routes, default 10000)"
+          ),
+      },
+    },
+    async ({ company_id, from_x, from_y, to_x, to_y, road_type, max_iterations }) => {
+      try {
+        const result = await bridge.execute(
+          "build_road_route",
+          { company_id, from_x, from_y, to_x, to_y, road_type, max_iterations },
+          120000
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Road route built. ${JSON.stringify(result)}`,
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to build road route: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  server.registerTool(
     "auto_signal_route",
     {
       description:

@@ -31,7 +31,8 @@ export function createServer(): {
 
   const bridgeUrl = process.env.OPENTTD_BRIDGE_URL ?? "http://127.0.0.1:13977";
   const client = new BridgeClient(bridgeUrl);
-  // Cast to any for tool registration - BridgeClient has the same public interface as AdminClient
+  // BridgeClient implements the same public interface as AdminClient.
+  // Cast to any because the type systems don't share a common interface.
   const adminClient = client as any;
   const bridge = new GameScriptBridge(adminClient);
 

@@ -7,6 +7,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AdminClient } from "../admin-client.js";
 import { COMPANY_SPECTATOR } from "../protocol/types.js";
 
+function sanitizeRconInput(input: string): string {
+  // Remove characters that could be used for command injection
+  return input.replace(/[;\n\r"\\]/g, "");
+}
+
 export function registerClientTools(
   server: McpServer,
   client: AdminClient
@@ -64,7 +69,7 @@ export function registerClientTools(
       if (!client.isConnected) {
         return { content: [{ type: "text", text: "Not connected." }] };
       }
-      const lines = await client.executeRcon(`kick ${client_id} "${reason}"`);
+      const lines = await client.executeRcon(`kick ${client_id} "${sanitizeRconInput(reason || "")}"`);
       return {
         content: [
           {

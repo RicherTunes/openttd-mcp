@@ -7,6 +7,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AdminClient } from "../admin-client.js";
 import { GameScriptBridge } from "../gamescript/bridge.js";
 
+function sanitizeRconInput(input: string): string {
+  // Remove characters that could be used for command injection
+  return input.replace(/[;\n\r"\\]/g, "");
+}
+
 export function registerGameControlTools(
   server: McpServer,
   client: AdminClient,
@@ -65,7 +70,7 @@ export function registerGameControlTools(
       if (!client.isConnected) {
         return { content: [{ type: "text", text: "Not connected." }] };
       }
-      const lines = await client.executeRcon(`save ${filename}`);
+      const lines = await client.executeRcon(`save ${sanitizeRconInput(filename)}`);
       return {
         content: [
           {
@@ -89,7 +94,7 @@ export function registerGameControlTools(
       if (!client.isConnected) {
         return { content: [{ type: "text", text: "Not connected." }] };
       }
-      const lines = await client.executeRcon(`load ${filename}`);
+      const lines = await client.executeRcon(`load ${sanitizeRconInput(filename)}`);
       return {
         content: [
           {
@@ -137,7 +142,7 @@ export function registerGameControlTools(
       if (!client.isConnected) {
         return { content: [{ type: "text", text: "Not connected." }] };
       }
-      const lines = await client.executeRcon(`setting ${setting} ${value}`);
+      const lines = await client.executeRcon(`setting ${sanitizeRconInput(setting)} ${sanitizeRconInput(value)}`);
       return {
         content: [
           {

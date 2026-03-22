@@ -31,7 +31,17 @@ function respond(res: http.ServerResponse, status: number, body: unknown): void 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let totalSize = 0;
+    const MAX_BODY = 1024 * 1024; // 1MB limit
+    req.on("data", (chunk: Buffer) => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
@@ -102,6 +112,8 @@ async function main(): Promise<void> {
   });
 
   // Route handler
+  // TODO: Add authentication (e.g., API key via OPENTTD_BRIDGE_KEY env var)
+  // Currently trusts all connections from localhost (127.0.0.1)
   async function handleRequest(
     req: http.IncomingMessage,
     res: http.ServerResponse

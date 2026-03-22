@@ -9,10 +9,17 @@ import * as net from "node:net";
 import * as fs from "node:fs";
 import { EventEmitter } from "node:events";
 
-const LOG_FILE = "/tmp/openttd-mcp-debug.log";
+const DEBUG_ENABLED = process.env.OPENTTD_DEBUG === "true";
+const LOG_FILE = process.env.OPENTTD_DEBUG_LOG || (process.platform === "win32" ? "" : "/tmp/openttd-mcp-debug.log");
+
 function debugLog(msg: string) {
-  const ts = new Date().toISOString();
-  fs.appendFileSync(LOG_FILE, `[${ts}] ${msg}\n`);
+  if (!DEBUG_ENABLED || !LOG_FILE) return;
+  try {
+    const ts = new Date().toISOString();
+    fs.appendFileSync(LOG_FILE, `[${ts}] ${msg}\n`);
+  } catch {
+    // Silently ignore logging failures
+  }
 }
 import { PacketReader } from "./protocol/reader.js";
 import {
@@ -927,7 +934,11 @@ export class AdminClient extends EventEmitter {
     this.safeWrite(buildGameScriptPacket(JSON.stringify(command)));
   }
 
-  /** Poll company economy data */
+  /**
+   * Poll company economy data.
+   * Note: Uses a fixed 1s timeout to collect responses. This is a simplistic approach;
+   * a more robust implementation would track expected response count and resolve early.
+   */
   async pollCompanyEconomy(companyId?: number): Promise<CompanyEconomy[]> {
     await this.ensureConnected();
 
@@ -952,7 +963,11 @@ export class AdminClient extends EventEmitter {
     });
   }
 
-  /** Poll company stats */
+  /**
+   * Poll company stats.
+   * Note: Uses a fixed 1s timeout to collect responses. This is a simplistic approach;
+   * a more robust implementation would track expected response count and resolve early.
+   */
   async pollCompanyStats(companyId?: number): Promise<CompanyStats[]> {
     await this.ensureConnected();
 

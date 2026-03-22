@@ -175,6 +175,7 @@ class ClaudeMCP extends GSController {
         case "find_rail_station_spot": return this.CmdFindRailStationSpot(params);
         case "survey_line":            return this.CmdSurveyLine(params);
         case "survey_area":            return this.CmdSurveyArea(params);
+        case "get_tile_range":         return this.CmdGetTileRange(params);
         case "build_rail_line":        return this.CmdBuildRailLine(params);
         case "attach_wagon":           return this.CmdAttachWagon(params);
 
@@ -1549,6 +1550,90 @@ class ClaudeMCP extends GSController {
       counts = counts,
       min_height = min_h, max_height = max_h,
       legend = ".: flat buildable, /: sloped buildable, ~: water, #: building, +: road, r: rail, T: town"
+    }};
+  }
+
+  /**
+   * get_tile_range: Compact grid representation of a rectangular area.
+   * Returns ASCII grids for tile types and heights, plus road/buildable coordinate lists.
+   */
+  function CmdGetTileRange(p) {
+    local x1 = p.from_x;
+    local y1 = p.from_y;
+    local x2 = p.to_x;
+    local y2 = p.to_y;
+
+    if (x1 > x2) { local t = x1; x1 = x2; x2 = t; }
+    if (y1 > y2) { local t = y1; y1 = y2; y2 = t; }
+
+    local w = x2 - x1 + 1;
+    local h = y2 - y1 + 1;
+    if (w > 20 || h > 20) {
+      return { success = false, error = "Max 20x20 area. Use multiple calls for larger regions." };
+    }
+
+    // Build compact grid rows:
+    // Each row is a string where each char represents a tile type:
+    // . = flat buildable, / = sloped buildable, R = road, r = rail
+    // ~ = water, # = building/structure, S = station/stop, * = our road
+    // Heights as separate grid
+    local type_rows = [];
+    local height_rows = [];
+    // Also collect road tiles and buildable tiles as coordinate lists (capped)
+    local roads = [];
+    local buildable = [];
+    local ops = 0;
+
+    for (local y = y1; y <= y2; y++) {
+      local trow = "";
+      local hrow = "";
+      for (local x = x1; x <= x2; x++) {
+        local tile = GSMap.GetTileIndex(x, y);
+        local ht = GSTile.GetMaxHeight(tile);
+        hrow += (ht > 9 ? "9" : ht.tostring());
+
+        if (GSTile.IsWaterTile(tile) || GSTile.IsCoastTile(tile)) {
+          trow += "~";
+        } else if (GSRoad.IsRoadTile(tile)) {
+          local owner = GSTile.GetOwner(tile);
+          if (owner == 0) {
+            trow += "*";  // Our road
+          } else {
+            trow += "R";  // Town/other road
+          }
+          if (roads.len() < 30) roads.append({ x = x, y = y });
+        } else if (GSRail.IsRailTile(tile)) {
+          trow += "r";
+        } else if (GSTile.IsBuildable(tile)) {
+          if (GSTile.GetSlope(tile) == 0) {
+            trow += ".";
+          } else {
+            trow += "/";
+          }
+          if (buildable.len() < 20) buildable.append({ x = x, y = y, slope = GSTile.GetSlope(tile) });
+        } else {
+          local owner = GSTile.GetOwner(tile);
+          if (owner == 0) {
+            trow += "S";  // Our structure (station/depot)
+          } else {
+            trow += "#";  // Building/other
+          }
+        }
+
+        if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+      type_rows.append(trow);
+      height_rows.append(hrow);
+    }
+
+    return { success = true, result = {
+      from_x = x1, from_y = y1, to_x = x2, to_y = y2,
+      width = w, height = h,
+      grid = type_rows,
+      heights = height_rows,
+      roads = roads,
+      buildable = buildable,
+      legend = ". flat, / slope, R road, * our_road, r rail, ~ water, # building, S our_stop"
     }};
   }
 

@@ -823,4 +823,34 @@ export function registerMapQueryTools(
       }
     }
   );
+
+  server.registerTool(
+    "get_tile_range",
+    {
+      description:
+        "Query a rectangular area of tiles. Returns a compact ASCII grid showing terrain types (. buildable, R road, * our road, # building, ~ water, S our stop) plus height grid. Max 20x20. Ideal for surveying an area before building.",
+      inputSchema: {
+        from_x: z.number().describe("Left X coordinate of the area"),
+        from_y: z.number().describe("Top Y coordinate of the area"),
+        to_x: z.number().describe("Right X coordinate of the area"),
+        to_y: z.number().describe("Bottom Y coordinate of the area"),
+      },
+    },
+    async ({ from_x, from_y, to_x, to_y }) => {
+      try {
+        const result = await bridge.execute("get_tile_range", {
+          from_x, from_y, to_x, to_y,
+        }, 30000);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return {
+          content: [
+            { type: "text", text: `Failed: ${err instanceof Error ? err.message : String(err)}` },
+          ],
+        };
+      }
+    }
+  );
 }

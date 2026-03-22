@@ -190,49 +190,157 @@ export function hchacha20(key: Uint8Array | Buffer, input: Uint8Array | Buffer):
   return out;
 }
 
+// ============ ChaCha20 DJB stream cipher ============
+
+/**
+ * ChaCha20 DJB block function.
+ * Input: key(32), nonce(8), counter(u64 as two u32)
+ * Output: 64-byte block
+ *
+ * State layout: [constants(4)] [key(8)] [counter(2)] [nonce(2)]
+ */
+function chacha20Block(key: Buffer, nonce: Buffer, counterLo: number, counterHi: number): Buffer {
+  const state = new Uint32Array(16);
+  state[0] = 0x61707865;
+  state[1] = 0x3320646e;
+  state[2] = 0x79622d32;
+  state[3] = 0x6b206574;
+  for (let i = 0; i < 8; i++) state[4 + i] = readLE32(key, i * 4);
+  state[12] = counterLo >>> 0;
+  state[13] = counterHi >>> 0;
+  state[14] = readLE32(nonce, 0);
+  state[15] = readLE32(nonce, 4);
+
+  const x = new Uint32Array(state);
+  for (let i = 0; i < 10; i++) {
+    quarterRound(x, 0, 4, 8, 12);
+    quarterRound(x, 1, 5, 9, 13);
+    quarterRound(x, 2, 6, 10, 14);
+    quarterRound(x, 3, 7, 11, 15);
+    quarterRound(x, 0, 5, 10, 15);
+    quarterRound(x, 1, 6, 11, 12);
+    quarterRound(x, 2, 7, 8, 13);
+    quarterRound(x, 3, 4, 9, 14);
+  }
+
+  const out = Buffer.alloc(64);
+  for (let i = 0; i < 16; i++) {
+    writeLE32(out, i * 4, (x[i] + state[i]) >>> 0);
+  }
+  return out;
+}
+
+/**
+ * ChaCha20 DJB XOR (encrypt/decrypt).
+ * XORs input with ChaCha20 keystream starting at the given block counter.
+ */
+function chacha20DjbXor(
+  input: Uint8Array | Buffer,
+  key: Buffer,
+  nonce: Buffer,
+  counterLo: number,
+  counterHi: number = 0
+): Buffer {
+  const out = Buffer.alloc(input.length);
+  let offset = 0;
+  let cLo = counterLo;
+  let cHi = counterHi;
+
+  while (offset < input.length) {
+    const block = chacha20Block(key, nonce, cLo, cHi);
+    const remaining = input.length - offset;
+    const take = Math.min(64, remaining);
+    for (let i = 0; i < take; i++) {
+      out[offset + i] = input[offset + i] ^ block[i];
+    }
+    offset += take;
+    // Increment 64-bit counter
+    cLo = (cLo + 1) >>> 0;
+    if (cLo === 0) cHi = (cHi + 1) >>> 0;
+  }
+  return out;
+}
+
 // ============ Streaming AEAD (matches Monocypher 4 crypto_aead_init_x / write / read) ============
+
+/**
+ * Build AEAD MAC input per RFC 8439 §2.8:
+ *   pad16(ad) || pad16(ciphertext) || LE64(ad_size) || LE64(ct_size)
+ */
+function buildAeadInput(
+  ciphertext: Uint8Array | Buffer,
+  ad: Uint8Array | Buffer | null
+): Buffer {
+  const adLen = ad ? ad.length : 0;
+  const ctLen = ciphertext.length;
+  const adPad = (16 - (adLen % 16)) % 16;
+  const ctPad = (16 - (ctLen % 16)) % 16;
+
+  const input = Buffer.alloc(adLen + adPad + ctLen + ctPad + 16);
+  let off = 0;
+  if (ad && adLen > 0) {
+    Buffer.from(ad).copy(input, off);
+    off += adLen;
+  }
+  off += adPad;
+  Buffer.from(ciphertext).copy(input, off);
+  off += ctLen + ctPad;
+  input.writeBigUInt64LE(BigInt(adLen), off);
+  input.writeBigUInt64LE(BigInt(ctLen), off + 8);
+
+  return input;
+}
 
 /**
  * Streaming AEAD handler for encrypting/decrypting packets after auth.
  *
- * Internally uses HChaCha20 to derive a subkey, then ChaCha20-Poly1305 IETF
- * with an auto-incrementing counter for each message.
+ * Matches Monocypher 4's crypto_aead_init_x / crypto_aead_write / crypto_aead_read:
+ *  - HChaCha20 derives a subkey from key + nonce[0..16]
+ *  - Each message uses ChaCha20-DJB (8-byte nonce, 64-bit counter):
+ *      block 0: generates Poly1305 key (32 bytes) + rekey material (32 bytes)
+ *      block 1+: encrypts/decrypts the message
+ *  - After each message the key is replaced (rekeying), counter stays at 0
  */
 export class StreamingAead {
-  private subkey: Buffer;
-  private baseNonce: Buffer; // 8 bytes (nonce[16..23])
+  private key: Buffer; // 32 bytes — rekeyed after each message
+  private nonce: Buffer; // 8 bytes (nonce[16..23])
   private counter: number = 0;
 
   constructor(key: Uint8Array | Buffer, nonce24: Uint8Array | Buffer) {
     // HChaCha20: derive subkey from key + nonce[0..15]
-    this.subkey = hchacha20(key, nonce24.subarray(0, 16));
-    // Store nonce[16..23] as base nonce
-    this.baseNonce = Buffer.from(nonce24.subarray(16, 24));
+    this.key = hchacha20(key, nonce24.subarray(0, 16));
+    // Store nonce[16..23] as 8-byte DJB nonce
+    this.nonce = Buffer.from(nonce24.subarray(16, 24));
   }
 
-  /** Build the 12-byte IETF nonce: LE32(counter) || baseNonce */
-  private buildNonce(): Buffer {
-    const nonce12 = Buffer.alloc(12);
-    writeLE32(nonce12, 0, this.counter);
-    this.baseNonce.copy(nonce12, 4);
-    return nonce12;
+  /**
+   * Build the 12-byte IETF nonce equivalent to DJB (counter=0, 8-byte nonce).
+   * IETF state[12]=counter, state[13..15]=nonce words.
+   * DJB  state[12..13]=counter64, state[14..15]=nonce words.
+   * With counter=0: [0,0,0,0, nonce(8)] produces identical ChaCha20 state.
+   */
+  private ietfNonce(): Buffer {
+    const n = Buffer.alloc(12);
+    this.nonce.copy(n, 4);
+    return n;
   }
 
   /** Encrypt a message. Returns MAC (16 bytes) + ciphertext. */
   encrypt(plaintext: Buffer): Buffer {
-    const nonce12 = this.buildNonce();
-    this.counter++;
+    // Generate rekey material from ChaCha20 block 0
+    const authKey = chacha20DjbXor(Buffer.alloc(64), this.key, this.nonce, this.counter);
 
-    const cipher = crypto.createCipheriv(
-      "chacha20-poly1305",
-      this.subkey,
-      nonce12,
-      { authTagLength: 16 }
-    );
-    // No additional data for packet encryption (OpenTTD uses nullptr)
+    // Encrypt using IETF AEAD (equivalent to DJB at counter=0)
+    const nonce12 = this.ietfNonce();
+    const cipher = crypto.createCipheriv("chacha20-poly1305", this.key, nonce12, {
+      authTagLength: 16,
+    });
     const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
     const mac = cipher.getAuthTag();
-    // Wire format: MAC (16 bytes) + ciphertext
+
+    // Rekey: replace key with bytes 32..64 of block 0
+    this.key = Buffer.from(authKey.subarray(32, 64));
+
     return Buffer.concat([mac, ciphertext]);
   }
 
@@ -244,17 +352,20 @@ export class StreamingAead {
     const mac = data.subarray(0, X25519_MAC_SIZE);
     const ciphertext = data.subarray(X25519_MAC_SIZE);
 
-    const nonce12 = this.buildNonce();
-    this.counter++;
+    // Generate rekey material from ChaCha20 block 0
+    const authKey = chacha20DjbXor(Buffer.alloc(64), this.key, this.nonce, this.counter);
 
-    const decipher = crypto.createDecipheriv(
-      "chacha20-poly1305",
-      this.subkey,
-      nonce12,
-      { authTagLength: 16 }
-    );
+    // Decrypt using IETF AEAD (equivalent to DJB at counter=0)
+    const nonce12 = this.ietfNonce();
+    const decipher = crypto.createDecipheriv("chacha20-poly1305", this.key, nonce12, {
+      authTagLength: 16,
+    });
     decipher.setAuthTag(mac);
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+
+    // Rekey: replace key with bytes 32..64 of block 0
+    this.key = Buffer.from(authKey.subarray(32, 64));
+
     return plaintext;
   }
 }

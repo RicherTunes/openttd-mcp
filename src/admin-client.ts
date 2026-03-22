@@ -121,9 +121,17 @@ export class AdminClient extends EventEmitter {
   // Pending RCON commands
   private pendingRcon: PendingRcon | null = null;
 
-  // Pending GameScript commands
+  // Pending GameScript commands (only one in flight at a time)
   private pendingGameScript: Map<string, PendingGameScript> = new Map();
   private gsCommandCounter: number = 0;
+  private gsQueue: Array<{
+    id: string;
+    command: GameScriptCommand;
+    timeoutMs: number;
+    resolve: (response: GameScriptResponse) => void;
+    reject: (error: Error) => void;
+  }> = [];
+  private gsInFlight: boolean = false;
 
   // Keepalive
   private pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -188,11 +196,14 @@ export class AdminClient extends EventEmitter {
 
       socket.connect(options.port, options.host, () => {
         this.connected = true;
-        // Use insecure join (plaintext password) — works with allow_insecure_admin_login = true
-        const joinPacket = buildJoinPacket(
-          options.password,
+        // Use secure join (X25519 PAKE) — OpenTTD 14+
+        const supportedMethods =
+          (1 << NetworkAuthMethod.X25519_PAKE) |
+          (1 << NetworkAuthMethod.X25519_KEY_EXCHANGE_ONLY);
+        const joinPacket = buildJoinSecurePacket(
           options.botName ?? "ClaudeMCP",
-          options.botVersion ?? "1.0.0"
+          options.botVersion ?? "1.0.0",
+          supportedMethods
         );
         this.rawWrite(joinPacket);
       });
@@ -234,10 +245,65 @@ export class AdminClient extends EventEmitter {
         }
       });
 
-      // Handle auth request from server
-      // Wait for welcome packet (insecure auth: SERVER_PROTOCOL then SERVER_WELCOME)
+      // Handle secure auth: SERVER_AUTH_REQUEST → compute PAKE → ADMIN_AUTH_RESPONSE
+      const onAuthRequest = (authReq: {
+        method: number;
+        serverPublicKey: Buffer;
+        nonce: Buffer;
+      }) => {
+        debugLog(`Auth request: method=${authReq.method}`);
+        try {
+          const pake = computePakeResponse(
+            authReq.serverPublicKey,
+            authReq.nonce,
+            options.password
+          );
+          // Store keys for enabling encryption later
+          this.pendingEncryptionKeys = {
+            clientToServer: pake.clientToServerKey,
+            serverToClient: pake.serverToClientKey,
+          };
+          const authPacket = buildAuthResponsePacket(
+            pake.clientPublicKey,
+            pake.mac,
+            pake.encryptedMessage
+          );
+          this.rawWrite(authPacket);
+        } catch (err) {
+          debugLog(`PAKE computation failed: ${err}`);
+          if (!settled) {
+            settle();
+            reject(
+              new Error(
+                `Authentication failed: ${err instanceof Error ? err.message : String(err)}`
+              )
+            );
+          }
+        }
+      };
+
+      // Handle encryption enable: SERVER_ENABLE_ENCRYPTION → switch to encrypted I/O
+      const onEnableEncryption = (encryptionNonce: Buffer) => {
+        debugLog("Enabling encryption");
+        if (this.pendingEncryptionKeys) {
+          this.sendEncryption = new StreamingAead(
+            this.pendingEncryptionKeys.clientToServer,
+            encryptionNonce
+          );
+          this.recvEncryption = new StreamingAead(
+            this.pendingEncryptionKeys.serverToClient,
+            encryptionNonce
+          );
+          this.encryptionEnabled = true;
+          this.pendingEncryptionKeys = null;
+          debugLog("Encryption enabled");
+        }
+      };
+
       const onWelcome = (welcome: ServerWelcome) => {
         clearTimeout(connectTimeout);
+        this.removeListener("_authRequest", onAuthRequest);
+        this.removeListener("_enableEncryption", onEnableEncryption);
         this.removeListener("_welcome", onWelcome);
         this.removeListener("_authFailed", onAuthFailed);
         if (!settled) {
@@ -252,6 +318,8 @@ export class AdminClient extends EventEmitter {
 
       const onAuthFailed = (err: Error) => {
         clearTimeout(connectTimeout);
+        this.removeListener("_authRequest", onAuthRequest);
+        this.removeListener("_enableEncryption", onEnableEncryption);
         this.removeListener("_welcome", onWelcome);
         this.removeListener("_authFailed", onAuthFailed);
         if (!settled) {
@@ -260,6 +328,8 @@ export class AdminClient extends EventEmitter {
         }
       };
 
+      this.on("_authRequest", onAuthRequest);
+      this.on("_enableEncryption", onEnableEncryption);
       this.on("_welcome", onWelcome);
       this.on("_authFailed", onAuthFailed);
     });
@@ -400,6 +470,13 @@ export class AdminClient extends EventEmitter {
     }
     this.pendingGameScript.clear();
     this.gsChunkBuffers.clear();
+
+    // Reject queued commands
+    for (const queued of this.gsQueue) {
+      queued.reject(new Error("Connection closed"));
+    }
+    this.gsQueue = [];
+    this.gsInFlight = false;
   }
 
   private cleanup(): void {
@@ -787,7 +864,11 @@ export class AdminClient extends EventEmitter {
     this.safeWrite(buildChatPacket(NetworkAction.CHAT, destType, dest, message));
   }
 
-  /** Send a JSON command to the GameScript */
+  /**
+   * Send a JSON command to the GameScript.
+   * Commands are serialized — only one is in flight at a time to prevent
+   * overwhelming the GameScript's opcode budget and freezing the game.
+   */
   async sendGameScriptCommand(
     action: string,
     params: Record<string, unknown> = {},
@@ -800,19 +881,50 @@ export class AdminClient extends EventEmitter {
     const command: GameScriptCommand = { id, action, params };
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingGameScript.delete(id);
-        this.gsChunkBuffers.delete(id);
-        reject(
-          new Error(
-            `GameScript command timed out after ${timeoutMs}ms. Is the ClaudeMCP GameScript loaded?`
-          )
-        );
-      }, timeoutMs);
-
-      this.pendingGameScript.set(id, { resolve, reject, timeout });
-      this.safeWrite(buildGameScriptPacket(JSON.stringify(command)));
+      this.gsQueue.push({ id, command, timeoutMs, resolve, reject });
+      this.processGsQueue();
     });
+  }
+
+  /** Process the next queued GameScript command if none is in flight. */
+  private processGsQueue(): void {
+    if (this.gsInFlight || this.gsQueue.length === 0) return;
+    if (!this.socket || !this.connected) return;
+
+    this.gsInFlight = true;
+    const { id, command, timeoutMs, resolve, reject } = this.gsQueue.shift()!;
+
+    const onDone = () => {
+      this.gsInFlight = false;
+      this.processGsQueue();
+    };
+
+    const timeout = setTimeout(() => {
+      this.pendingGameScript.delete(id);
+      this.gsChunkBuffers.delete(id);
+      onDone();
+      reject(
+        new Error(
+          `GameScript command "${command.action}" timed out after ${timeoutMs}ms. Is the ClaudeMCP GameScript loaded?`
+        )
+      );
+    }, timeoutMs);
+
+    this.pendingGameScript.set(id, {
+      resolve: (response) => {
+        clearTimeout(timeout);
+        onDone();
+        resolve(response);
+      },
+      reject: (error) => {
+        clearTimeout(timeout);
+        onDone();
+        reject(error);
+      },
+      timeout,
+    });
+
+    this.safeWrite(buildGameScriptPacket(JSON.stringify(command)));
   }
 
   /** Poll company economy data */

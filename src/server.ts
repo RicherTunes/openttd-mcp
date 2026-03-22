@@ -18,6 +18,7 @@ import { registerClientTools } from "./tools/clients.js";
 import { registerBuildingTools } from "./tools/building.js";
 import { registerVehicleTools } from "./tools/vehicles.js";
 import { registerMapQueryTools } from "./tools/map-query.js";
+import { registerSetupTools } from "./tools/setup.js";
 
 export function createServer(): {
   server: McpServer;
@@ -45,6 +46,7 @@ export function createServer(): {
   registerBuildingTools(server, bridge);
   registerVehicleTools(server, bridge);
   registerMapQueryTools(server, bridge, adminClient);
+  registerSetupTools(server);
 
   // Setup guide resource
   server.registerResource(

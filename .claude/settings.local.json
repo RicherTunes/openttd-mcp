@@ -16,7 +16,10 @@
       "mcp__openttd__buy_vehicle",
       "mcp__openttd__add_vehicle_order",
       "mcp__openttd__start_vehicle",
-      "mcp__openttd__clone_vehicle"
+      "mcp__openttd__clone_vehicle",
+      "mcp__openttd__install_gamescript",
+      "mcp__openttd__setup_openttd",
+      "mcp__openttd__launch_openttd"
     ]
   }
 }

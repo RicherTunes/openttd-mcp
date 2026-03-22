@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "openttd": {
+      "command": "node",
+      "args": ["D:/Alex/PetProjects/openttd-mcp/build/index.js"]
+    }
+  }
+}

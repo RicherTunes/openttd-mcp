@@ -2564,13 +2564,18 @@ class ClaudeMCP extends GSController {
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local veh_ids = [];
-    foreach (vid, _ in veh_list) veh_ids.append(vid);
+    local ops = 0;
+    foreach (vid, _ in veh_list) {
+      veh_ids.append(vid);
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
+    this.Sleep(1);
 
     local running = 0;
     local stopped = 0;
     local loading = 0;
     local broken = 0;
-    local ops = 0;
+    ops = 0;
     for (local i = 0; i < veh_ids.len(); i++) {
       local state = GSVehicle.GetState(veh_ids[i]);
       switch (state) {
@@ -2581,10 +2586,15 @@ class ClaudeMCP extends GSController {
       }
       if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
+    this.Sleep(1);
 
     local stn_list = GSStationList(GSStation.STATION_ANY);
     local stn_ids = [];
-    foreach (sid, _ in stn_list) stn_ids.append(sid);
+    ops = 0;
+    foreach (sid, _ in stn_list) {
+      stn_ids.append(sid);
+      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+    }
 
     return { success = true, result = {
       vehicle_count = veh_ids.len(),
@@ -2954,19 +2964,26 @@ class ClaudeMCP extends GSController {
     result.station_a <- stn_a;
     result.station_b <- stn_b;
     result.depot <- { x = depot_spot.x, y = depot_spot.y };
+    this.Sleep(1);
 
     // Phase 7: Auto-find bus engine if not specified
     if (engine_id < 0) {
       local eng_list = GSEngineList(GSVehicle.VT_ROAD);
       local engs = [];
-      foreach (eng, _ in eng_list) engs.append(eng);
+      local eng_ops = 0;
+      foreach (eng, _ in eng_list) {
+        engs.append(eng);
+        if (++eng_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+      }
+      this.Sleep(1);
+      local search_ops = 0;
       for (local i = 0; i < engs.len(); i++) {
         local eng = engs[i];
         if (GSEngine.IsBuildable(eng) && GSEngine.GetCargoType(eng) == 0) {
           engine_id = eng;
           break;
         }
-        if (i % this.YIELD_INTERVAL == 0) this.Sleep(1);
+        if (++search_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
       }
     }
 
@@ -3069,6 +3086,7 @@ class ClaudeMCP extends GSController {
 
   // Helper: find a flat buildable tile near given coordinates
   function FindBuildableNear(cx, cy, radius) {
+    local ops = 0;
     for (local r = 1; r <= radius; r++) {
       for (local dy = -r; dy <= r; dy++) {
         for (local dx = -r; dx <= r; dx++) {
@@ -3077,6 +3095,7 @@ class ClaudeMCP extends GSController {
           if (GSMap.IsValidTile(tile) && GSTile.IsBuildable(tile) && GSTile.GetSlope(tile) == 0) {
             return { x = cx + dx, y = cy + dy };
           }
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         }
       }
     }
@@ -3085,6 +3104,7 @@ class ClaudeMCP extends GSController {
 
   // Helper: find a road tile near given coordinates
   function FindRoadTileNear(cx, cy, radius) {
+    local ops = 0;
     for (local r = 0; r <= radius; r++) {
       for (local dy = -r; dy <= r; dy++) {
         for (local dx = -r; dx <= r; dx++) {
@@ -3093,6 +3113,7 @@ class ClaudeMCP extends GSController {
           if (GSMap.IsValidTile(tile) && GSRoad.IsRoadTile(tile)) {
             return { x = cx + dx, y = cy + dy };
           }
+          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         }
       }
     }
@@ -3453,8 +3474,9 @@ class ClaudeMCP extends GSController {
     if (days_transit > 200) days_transit = 200;
 
     // Revenue per trip
-    local income_per_100 = GSCargo.GetCargoIncome(cargo_id, distance, days_transit);
-    local revenue_per_trip = (income_per_100 * capacity / 100.0).tointeger();
+    // GSCargo.GetCargoIncome returns income per 1 unit of cargo
+    local income_per_unit = GSCargo.GetCargoIncome(cargo_id, distance, days_transit);
+    local revenue_per_trip = income_per_unit * capacity;
 
     // Trips per year (365 days / round_trip_days)
     local round_trip_days = days_transit * 2 + 10; // +10 for loading time
@@ -3675,7 +3697,7 @@ class ClaudeMCP extends GSController {
       rates.append({
         cargo_id = cid,
         name = GSCargo.GetName(cid),
-        income_per_100 = income,
+        income_per_unit = income,
         distance = distance,
         days_transit = days_transit
       });
@@ -3685,7 +3707,7 @@ class ClaudeMCP extends GSController {
     // Sort by income (simple bubble sort, small list)
     for (local i = 0; i < rates.len() - 1; i++) {
       for (local j = i + 1; j < rates.len(); j++) {
-        if (rates[j].income_per_100 > rates[i].income_per_100) {
+        if (rates[j].income_per_unit > rates[i].income_per_unit) {
           local tmp = rates[i]; rates[i] = rates[j]; rates[j] = tmp;
         }
       }

@@ -21,10 +21,11 @@ class ClaudeMCP extends GSController {
   // Each item ~80-150 bytes JSON, keep chunks under ~1200 bytes to be safe
   CHUNK_SIZE = 10;
 
-  // Yield every N iterations to stay under OpenTTD's 10,000 opcode/tick budget.
-  // API calls cost ~8-10 opcodes each; loop bodies with 4-5 calls ≈ 60+ ops/iter.
-  // 25 iters × 60 ops ≈ 1,500 ops per chunk (very safe margin under 10,000).
-  YIELD_INTERVAL = 25;
+  // Yield every N iterations to stay under the opcode/tick budget.
+  // Requires script_max_opcode_till_suspend = 250000 in openttd.cfg (25x default).
+  // With 250k budget: 500 iters × 60 ops = 30,000 ops (safe margin).
+  // Higher interval = fewer Sleep() calls = commands work even while paused.
+  YIELD_INTERVAL = 500;
 
   function Start() {
     this.log_level = this.GetSetting("log_level");

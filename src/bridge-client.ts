@@ -149,6 +149,7 @@ export class BridgeClient {
   }
 
   async executeRcon(command: string, timeoutMs: number = 10000): Promise<string[]> {
+    await this.ensureConnected();
     const result = await this.post("/rcon", { command, timeoutMs }) as { lines: string[] };
     return result.lines;
   }
@@ -158,6 +159,7 @@ export class BridgeClient {
     destType?: DestType,
     dest: number = 0
   ): Promise<void> {
+    await this.ensureConnected();
     await this.post("/chat", { message, destType, dest });
   }
 
@@ -166,6 +168,7 @@ export class BridgeClient {
     params: Record<string, unknown> = {},
     timeoutMs: number = 30000
   ): Promise<GameScriptResponse> {
+    await this.ensureConnected();
     const result = await this.post("/gamescript", {
       action,
       params,
@@ -175,6 +178,7 @@ export class BridgeClient {
   }
 
   async pollCompanyEconomy(companyId?: number): Promise<CompanyEconomy[]> {
+    await this.ensureConnected();
     const path = companyId !== undefined
       ? `/companies/${companyId}/economy`
       : "/companies/all/economy";
@@ -183,6 +187,7 @@ export class BridgeClient {
   }
 
   async pollCompanyStats(companyId?: number): Promise<CompanyStats[]> {
+    await this.ensureConnected();
     const path = companyId !== undefined
       ? `/companies/${companyId}/stats`
       : "/companies/all/stats";

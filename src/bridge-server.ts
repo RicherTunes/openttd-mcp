@@ -96,12 +96,31 @@ async function main(): Promise<void> {
   const args = parseArgs();
   const client = new AdminClient();
 
+  // Track last successful connection options for auto-reconnect
+  let lastConnectOptions: AdminClientOptions | null = null;
+  let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Track connection state for logging
   client.on("reconnected", () => {
     console.log("[bridge] Reconnected to OpenTTD");
   });
   client.on("close", () => {
     console.log("[bridge] Connection closed");
+    // Auto-reconnect after 5 seconds if we had a previous connection
+    if (lastConnectOptions && !autoReconnectTimer) {
+      autoReconnectTimer = setTimeout(async () => {
+        autoReconnectTimer = null;
+        if (client.isConnected) return; // Already reconnected (e.g., by AdminClient's own reconnect)
+        try {
+          console.log("[bridge] Attempting auto-reconnect...");
+          const welcome = await client.connect(lastConnectOptions!);
+          console.log(`[bridge] Auto-reconnected to "${welcome.serverName}"`);
+        } catch (err) {
+          console.log(`[bridge] Auto-reconnect failed: ${err instanceof Error ? err.message : err}`);
+          // Will retry on next close event or manual POST /connect
+        }
+      }, 5000);
+    }
   });
 
   // Buffer console messages as alerts
@@ -134,6 +153,7 @@ async function main(): Promise<void> {
           botVersion: (body.botVersion as string) ?? "1.0.0",
         };
         const welcome = await client.connect(options);
+        lastConnectOptions = options;
         console.log(`[bridge] Connected to "${welcome.serverName}"`);
         respond(res, 200, { success: true, welcome });
         return;
@@ -141,6 +161,11 @@ async function main(): Promise<void> {
 
       // POST /disconnect
       if (method === "POST" && path === "/disconnect") {
+        lastConnectOptions = null;
+        if (autoReconnectTimer) {
+          clearTimeout(autoReconnectTimer);
+          autoReconnectTimer = null;
+        }
         await client.disconnect();
         console.log("[bridge] Disconnected");
         respond(res, 200, { success: true });
@@ -287,11 +312,13 @@ async function main(): Promise<void> {
   // Auto-connect if credentials provided
   if (args.password) {
     try {
-      const welcome = await client.connect({
+      const autoOptions: AdminClientOptions = {
         host: args.host ?? "127.0.0.1",
         port: args.port ?? 3977,
         password: args.password,
-      });
+      };
+      const welcome = await client.connect(autoOptions);
+      lastConnectOptions = autoOptions;
       console.log(`[bridge] Connected to "${welcome.serverName}"`);
     } catch (err) {
       console.error(`[bridge] Auto-connect failed: ${err instanceof Error ? err.message : err}`);

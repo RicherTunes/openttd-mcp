@@ -328,21 +328,29 @@ async function main(): Promise<void> {
     console.log(`[bridge] HTTP bridge listening on http://127.0.0.1:${args.httpPort}`);
   });
 
-  // Auto-connect if credentials provided
+  // Auto-connect if credentials provided (with retry)
   if (args.password) {
-    try {
-      const autoOptions: AdminClientOptions = {
-        host: args.host ?? "127.0.0.1",
-        port: args.port ?? 3977,
-        password: args.password,
-      };
-      const welcome = await client.connect(autoOptions);
-      lastConnectOptions = autoOptions;
-      console.log(`[bridge] Connected to "${welcome.serverName}"`);
-    } catch (err) {
-      console.error(`[bridge] Auto-connect failed: ${err instanceof Error ? err.message : err}`);
-      console.log("[bridge] Waiting for POST /connect...");
-    }
+    const autoOptions: AdminClientOptions = {
+      host: args.host ?? "127.0.0.1",
+      port: args.port ?? 3977,
+      password: args.password,
+    };
+    const tryConnect = async (attempt: number, maxAttempts: number) => {
+      try {
+        const welcome = await client.connect(autoOptions);
+        lastConnectOptions = autoOptions;
+        console.log(`[bridge] Connected to "${welcome.serverName}"`);
+      } catch (err) {
+        console.error(`[bridge] Auto-connect attempt ${attempt}/${maxAttempts} failed: ${err instanceof Error ? err.message : err}`);
+        if (attempt < maxAttempts) {
+          console.log(`[bridge] Retrying in 5s...`);
+          setTimeout(() => tryConnect(attempt + 1, maxAttempts), 5000);
+        } else {
+          console.log("[bridge] Giving up auto-connect. Use POST /connect to connect manually.");
+        }
+      }
+    };
+    tryConnect(1, 6); // Try 6 times over 30 seconds
   } else {
     console.log("[bridge] No --password provided. Waiting for POST /connect...");
   }

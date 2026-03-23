@@ -36,6 +36,7 @@ async function ensureBridge(): Promise<void> {
   const child = spawn(process.execPath, [bridgePath], {
     stdio: "ignore",
     detached: true,
+    env: { ...process.env }, // Inherit env vars including OPENTTD_ADMIN_PASSWORD
   });
   child.unref();
 

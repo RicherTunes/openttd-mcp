@@ -16,7 +16,7 @@ export function registerConnectionTools(
     "connect_to_server",
     {
       description:
-        "Connect to a running OpenTTD server via the admin port. The server must have admin_password set in openttd.cfg. Start OpenTTD, host a multiplayer game, then use this tool to connect.",
+        "Connect to a running OpenTTD server via the admin port. The connection is PERSISTENT — do NOT disconnect between tool calls. Connect once and use all tools freely. The server must have admin_password set in openttd.cfg.",
       inputSchema: {
         host: z
           .string()
@@ -67,7 +67,7 @@ export function registerConnectionTools(
   server.registerTool(
     "disconnect",
     {
-      description: "Disconnect from the OpenTTD server.",
+      description: "Disconnect from the OpenTTD server. WARNING: Do NOT call this during normal gameplay! The connection is persistent and shared. Only disconnect if you are completely done playing and want to release the admin port.",
       inputSchema: {},
     },
     async () => {

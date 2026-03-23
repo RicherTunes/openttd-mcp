@@ -30,9 +30,18 @@ If not connected, call MCP tool `connect_to_server` with `password: "claude"` fi
 2. Call MCP tool `get_subsidies` — any bonus routes available?
 3. Pick the best opportunity
 4. Call MCP tool `estimate_route_profit` to verify it's worth building
-5. If profitable:
-   - For industry pair: Call MCP tool `connect_industries` with `company_id: 0, source_id: X, dest_id: Y, engine_id: Z`
-   - For town pair: Call MCP tool `connect_towns_bus` with `company_id: 0, town_a_id: X, town_b_id: Y`
+5. If profitable, build manually step-by-step (do NOT use connect_industries or connect_towns_bus — they are disabled):
+   a. Call `get_tile_info` on tiles near source industry to find a flat buildable tile
+   b. Call `build_road_line` to build road from source area to destination area (L-shaped: horizontal then vertical)
+   c. Call `find_drive_through_spots` near source to find a road tile for a stop
+   d. Call `build_road_stop` with `is_drive_through: true, is_truck_stop: true` (try direction 0, if fails try 1)
+   e. Repeat c-d near destination
+   f. Call `find_depot_spots` near source, then `build_road_depot`
+   g. Call `buy_vehicle` at the depot with the chosen engine_id
+   h. Call `get_stations` to find station IDs for the two stops
+   i. Call `add_vehicle_order` twice: source station (order_flags: 1 = full load), dest station (order_flags: 2 = unload)
+   j. Call `start_vehicle`
+   k. Repeat g-j for additional trucks
 
 ### Step 5: Financial Management
 1. Call MCP tool `get_company_info` with `company_id: 0` — check finances

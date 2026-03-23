@@ -188,9 +188,9 @@ class ClaudeMCP extends GSController {
         // === Advanced Road (A* Pathfinding) ===
         case "build_road_route":        return this.CmdBuildRoadRoute(params);
 
-        // === High-Level Auto-Route ===
-        case "connect_industries":      return this.CmdConnectIndustries(params);
-        case "connect_towns_bus":       return this.CmdConnectTownsBus(params);
+        // === High-Level Auto-Route (DISABLED — use individual tools instead) ===
+        case "connect_industries":      return { success = false, error = "DISABLED: Use individual tools instead: find_drive_through_spots, build_road_stop, build_road_line, buy_vehicle, add_vehicle_order, start_vehicle" };
+        case "connect_towns_bus":       return { success = false, error = "DISABLED: Use individual tools instead: find_drive_through_spots, build_road_stop, build_road_line, buy_vehicle, add_vehicle_order, start_vehicle" };
         case "replace_old_vehicles":    return this.CmdReplaceOldVehicles(params);
 
         // === Emergency & Status ===

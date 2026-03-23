@@ -3770,6 +3770,7 @@ class ClaudeMCP extends GSController {
     local date = GSDate.GetCurrentDate();
     local year = GSDate.GetYear(date);
     local month = GSDate.GetMonth(date);
+    local day = GSDate.GetDayOfMonth(date);
 
     // Map size
     local map_x = GSMap.GetMapSizeX();
@@ -3833,7 +3834,7 @@ class ClaudeMCP extends GSController {
     }
 
     local result = {
-      date = year + "-" + (month < 10 ? "0" : "") + month,
+      date = year + "-" + (month < 10 ? "0" : "") + month + "-" + (day < 10 ? "0" : "") + day,
       map_size = map_x + "x" + map_y,
       towns = town_ids.len(),
       total_population = total_pop,

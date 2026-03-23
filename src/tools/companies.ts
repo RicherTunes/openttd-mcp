@@ -7,21 +7,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AdminClient } from "../admin-client.js";
 import { GameScriptBridge } from "../gamescript/bridge.js";
 import { COLOUR_NAMES } from "../types/openttd.js";
-
-// OpenTTD stores money in GBP (base unit). Client displays with currency multiplier.
-// Set OPENTTD_CURRENCY env var to match your in-game currency setting.
-const CURRENCY = process.env.OPENTTD_CURRENCY ?? "GBP";
-const CURRENCY_RATES: Record<string, { symbol: string; rate: number }> = {
-  GBP: { symbol: "£", rate: 1 },
-  USD: { symbol: "$", rate: 2 },
-  EUR: { symbol: "€", rate: 2 },
-};
-const { symbol: CURRENCY_SYMBOL, rate: CURRENCY_RATE } = CURRENCY_RATES[CURRENCY] ?? { symbol: "£", rate: 1 };
-
-function formatMoney(baseAmount: number | string | bigint): string {
-  const num = typeof baseAmount === "bigint" ? Number(baseAmount) : typeof baseAmount === "string" ? parseInt(baseAmount, 10) : baseAmount;
-  return `${CURRENCY_SYMBOL}${(num * CURRENCY_RATE).toLocaleString()}`;
-}
+import { formatMoney } from "../utils.js";
 
 export function registerCompanyTools(
   server: McpServer,

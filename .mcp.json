@@ -2,10 +2,13 @@
   "mcpServers": {
     "openttd": {
       "command": "node",
-      "args": ["D:/Alex/PetProjects/openttd-mcp/build/index.js"],
+      "args": [
+        "D:/Alex/PetProjects/openttd-mcp/build/index.js"
+      ],
       "env": {
         "OPENTTD_PATH": "D:\\Alex\\PetProjects\\OpenTTD-vanilla\\build\\Release\\openttd.exe",
-        "OPENTTD_CURRENCY": "USD"
+        "OPENTTD_CURRENCY": "USD",
+        "OPENTTD_ADMIN_PASSWORD": "claude"
       }
     }
   }

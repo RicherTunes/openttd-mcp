@@ -178,6 +178,19 @@ export function registerSetupTools(server: McpServer): void {
           );
         }
 
+        // Update or insert script_max_opcode_till_suspend
+        if (/^script_max_opcode_till_suspend\s*=/m.test(config)) {
+          config = config.replace(
+            /^script_max_opcode_till_suspend\s*=.*/m,
+            "script_max_opcode_till_suspend = 250000"
+          );
+        } else if (/^\[script\]/m.test(config)) {
+          config = config.replace(
+            /^\[script\]/m,
+            "[script]\nscript_max_opcode_till_suspend = 250000"
+          );
+        }
+
         writeFileSync(configPath, config);
 
         return {
@@ -188,6 +201,7 @@ export function registerSetupTools(server: McpServer): void {
                 "openttd.cfg updated:",
                 `  admin_password = ${password}`,
                 `  server_admin_port = ${admin_port}`,
+                `  script_max_opcode_till_suspend = 250000`,
                 "",
                 "Restart OpenTTD for changes to take effect.",
               ].join("\n"),

@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AdminClient } from "../admin-client.js";
 import { GameScriptBridge } from "../gamescript/bridge.js";
+import { formatMoney } from "../utils.js";
 
 function sanitizeRconInput(input: string): string {
   // Remove characters that could be used for command injection
@@ -181,12 +182,19 @@ export function registerGameControlTools(
         try {
           const params: Record<string, unknown> = { company_id, action };
           if (amount !== undefined) params.amount = amount;
-          const result = await bridge.execute("set_loan", params);
+          const result = await bridge.execute("set_loan", params) as Record<string, unknown>;
+          // Format money fields in the response
+          const formatted = { ...result };
+          for (const key of ["loan", "max_loan", "interval", "money", "current_loan", "new_loan", "amount"]) {
+            if (typeof formatted[key] === "number") {
+              formatted[key] = formatMoney(formatted[key] as number);
+            }
+          }
           return {
             content: [
               {
                 type: "text",
-                text: JSON.stringify(result, null, 2),
+                text: JSON.stringify(formatted, null, 2),
               },
             ],
           };

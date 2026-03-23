@@ -94,6 +94,15 @@ const MAX_ALERTS = 100;
 
 async function main(): Promise<void> {
   const args = parseArgs();
+
+  // Also check env vars for auto-connect (used when bridge is spawned by MCP server)
+  if (!args.password && process.env.OPENTTD_ADMIN_PASSWORD) {
+    args.password = process.env.OPENTTD_ADMIN_PASSWORD;
+  }
+  if (!args.host && process.env.OPENTTD_ADMIN_HOST) {
+    args.host = process.env.OPENTTD_ADMIN_HOST;
+  }
+
   const client = new AdminClient();
 
   // Track last successful connection options for auto-reconnect
@@ -271,6 +280,16 @@ async function main(): Promise<void> {
         const action = body.action as string;
         const params = (body.params as Record<string, unknown>) ?? {};
         const timeoutMs = (body.timeoutMs as number) ?? 30000;
+
+        // Auto-unpause: GameScript Sleep() hangs while paused
+        if (client.isConnected) {
+          try {
+            await client.executeRcon("unpause");
+          } catch {
+            // Ignore — might not be paused
+          }
+        }
+
         const response = await client.sendGameScriptCommand(action, params, timeoutMs);
         respond(res, 200, response);
         return;

@@ -16,7 +16,7 @@ export function registerMapQueryTools(
     "get_map_size",
     {
       description:
-        "Get the map dimensions. Tile coordinates range from (0,0) to (mapSizeX-1, mapSizeY-1).",
+        "Get the map dimensions. Requires ClaudeMCP GameScript to be loaded. Tile coordinates range from (0,0) to (mapSizeX-1, mapSizeY-1). Call this first to understand the coordinate bounds before using any tile-based tools.",
       inputSchema: {},
     },
     async () => {
@@ -57,7 +57,7 @@ export function registerMapQueryTools(
     "get_towns",
     {
       description:
-        "List all towns on the map with their names, population, and tile coordinates. Essential for planning routes.",
+        "List all towns on the map with their names, population, and tile coordinates. Requires ClaudeMCP GameScript to be loaded. Essential for planning routes. Use the returned town IDs with connect_towns_bus, connect_towns_rail, find_bus_stop_spots, find_drive_through_spots, etc.",
       inputSchema: {},
     },
     async () => {
@@ -88,7 +88,7 @@ export function registerMapQueryTools(
     "get_town_info",
     {
       description:
-        "Get detailed information about a specific town including population, growth rate, buildings, and authority rating.",
+        "Get detailed information about a specific town including population, growth rate, buildings, and authority rating. Requires ClaudeMCP GameScript to be loaded.",
       inputSchema: {
         town_id: z.number().describe("Town ID"),
       },
@@ -121,7 +121,7 @@ export function registerMapQueryTools(
     "get_industries",
     {
       description:
-        "List all industries on the map with their types, locations, and production data. Essential for planning cargo routes.",
+        "List all industries on the map with their types, locations, and production data. Requires ClaudeMCP GameScript to be loaded. Essential for planning cargo routes. Use the returned industry IDs with connect_industries or check_industry_catchment.",
       inputSchema: {},
     },
     async () => {
@@ -152,7 +152,7 @@ export function registerMapQueryTools(
     "get_industry_info",
     {
       description:
-        "Get detailed info about a specific industry including production rates, accepted cargo, and nearby stations.",
+        "Get detailed info about a specific industry including production rates, accepted cargo, and nearby stations. Requires ClaudeMCP GameScript to be loaded.",
       inputSchema: {
         industry_id: z.number().describe("Industry ID"),
       },
@@ -187,7 +187,7 @@ export function registerMapQueryTools(
     "get_tile_info",
     {
       description:
-        "Get information about a specific map tile: terrain type, height, slope, owner, and what is built on it.",
+        "Get information about a specific map tile: terrain type, height, slope, owner, and what is built on it. Requires ClaudeMCP GameScript to be loaded. For querying multiple tiles at once, use get_tiles or get_tile_range instead.",
       inputSchema: {
         x: z.number().describe("Tile X coordinate"),
         y: z.number().describe("Tile Y coordinate"),
@@ -221,7 +221,7 @@ export function registerMapQueryTools(
     "get_engines",
     {
       description:
-        "List available vehicle engines that can be purchased. Filter by vehicle type to see trains, road vehicles, ships, or aircraft.",
+        "List available vehicle engines that can be purchased. Requires ClaudeMCP GameScript to be loaded. Filter by vehicle type to see trains, road vehicles, ships, or aircraft. Use the returned engine IDs with buy_vehicle. For trains, filter is_wagon=true in results to find wagon IDs for connect_towns_rail.",
       inputSchema: {
         vehicle_type: z
           .enum(["train", "road", "ship", "aircraft"])
@@ -256,7 +256,7 @@ export function registerMapQueryTools(
     "get_cargo_types",
     {
       description:
-        "List all cargo types in the game (passengers, coal, mail, goods, etc.) with their IDs and properties.",
+        "List all cargo types in the game (passengers, coal, mail, goods, etc.) with their IDs and properties. Requires ClaudeMCP GameScript to be loaded. Use the returned cargo IDs with refit_vehicle and estimate_route_profit.",
       inputSchema: {},
     },
     async () => {
@@ -287,7 +287,7 @@ export function registerMapQueryTools(
     "get_stations",
     {
       description:
-        "List all stations owned by a company with their locations and cargo waiting.",
+        "List all stations owned by a company with their locations and cargo waiting. Requires ClaudeMCP GameScript to be loaded. Use the returned station IDs with add_vehicle_order to assign vehicle routes. Also use with get_station_cargo for detailed cargo breakdown.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
       },
@@ -319,7 +319,7 @@ export function registerMapQueryTools(
   server.registerTool(
     "get_rail_types",
     {
-      description: "List available rail types (normal rail, electric, monorail, maglev).",
+      description: "List available rail types (normal rail, electric, monorail, maglev). Requires ClaudeMCP GameScript to be loaded. Use the returned rail type IDs with build_rail, build_rail_station, build_rail_depot, and build_rail_route.",
       inputSchema: {},
     },
     async () => {
@@ -349,7 +349,7 @@ export function registerMapQueryTools(
   server.registerTool(
     "get_road_types",
     {
-      description: "List available road types (road, tram, etc.).",
+      description: "List available road types (road, tram, etc.). Requires ClaudeMCP GameScript to be loaded. Use the returned road type IDs with build_road, build_road_depot, build_road_stop, and build_road_route.",
       inputSchema: {},
     },
     async () => {
@@ -380,7 +380,7 @@ export function registerMapQueryTools(
     "get_tiles",
     {
       description:
-        "Query multiple tiles at once (batch). More efficient than calling get_tile_info repeatedly. Returns terrain, height, slope, owner, and build info for each tile.",
+        "Query multiple tiles at once (batch). Requires ClaudeMCP GameScript to be loaded. More efficient than calling get_tile_info repeatedly. Returns terrain, height, slope, owner, and build info for each tile. For rectangular area queries, prefer get_tile_range or survey_area instead.",
       inputSchema: {
         tiles: z
           .array(
@@ -425,7 +425,7 @@ export function registerMapQueryTools(
     "scan_town_area",
     {
       description:
-        "Scan tiles around a town center and classify each as buildable, road, building, or water. Returns counts and coordinate lists. Use this to understand town layout before building.",
+        "Scan tiles around a town center and classify each as buildable, road, building, or water. Requires ClaudeMCP GameScript to be loaded. Game should be unpaused for best performance. Returns counts and coordinate lists. Use this to understand town layout before building.",
       inputSchema: {
         town_id: z.number().describe("Town ID"),
         radius: z
@@ -464,7 +464,7 @@ export function registerMapQueryTools(
     "find_bus_stop_spots",
     {
       description:
-        "Find tiles suitable for bus stops: buildable AND adjacent to an existing road. Returns candidates sorted by distance from town center, with adjacent road coordinates.",
+        "Find tiles suitable for bay-style bus stops: buildable AND adjacent to an existing road. Requires ClaudeMCP GameScript to be loaded. Game should be unpaused for best performance. Returns candidates sorted by distance from town center. For drive-through stops (recommended — more reliable), use find_drive_through_spots instead.",
       inputSchema: {
         town_id: z.number().describe("Town ID"),
         radius: z
@@ -508,7 +508,7 @@ export function registerMapQueryTools(
     "find_drive_through_spots",
     {
       description:
-        "Find road tiles suitable for drive-through bus/truck stops. Drive-through stops avoid direction issues and are placed on existing roads.",
+        "Find road tiles suitable for drive-through bus/truck stops. Requires ClaudeMCP GameScript to be loaded. Game should be unpaused for best performance. Drive-through stops avoid direction issues and are placed on existing roads. Use the returned spots with build_road_stop(is_drive_through=true). The returned direction value tells you which direction to pass to build_road_stop.",
       inputSchema: {
         town_id: z.number().describe("Town ID"),
         radius: z
@@ -552,7 +552,7 @@ export function registerMapQueryTools(
     "find_depot_spots",
     {
       description:
-        "Find tiles suitable for road depots: buildable AND adjacent to an existing road. Returns candidates with depot_direction (0=NE, 1=SE, 2=SW, 3=NW) indicating which way the depot should face.",
+        "Find tiles suitable for road depots: buildable AND adjacent to an existing road. Requires ClaudeMCP GameScript to be loaded. Game should be unpaused for best performance. Returns candidates with depot_direction (0=NE, 1=SE, 2=SW, 3=NW) indicating which way the depot should face. Use the returned spots with build_road_depot. Direction is auto-tried if the suggested one fails.",
       inputSchema: {
         town_id: z.number().describe("Town ID"),
         radius: z
@@ -600,7 +600,7 @@ export function registerMapQueryTools(
     "find_rail_station_spot",
     {
       description:
-        "Find a flat buildable area near a town suitable for a train station. Returns candidates with x, y, direction (0=NE-SW along X, 1=NW-SE along Y), and elevation.",
+        "Find a flat buildable area near a town suitable for a train station. Requires ClaudeMCP GameScript to be loaded. Game should be unpaused for best performance. Returns candidates with x, y, direction (0=NE-SW along X, 1=NW-SE along Y), and elevation. Use the returned spots with build_rail_station.",
       inputSchema: {
         town_id: z.number().describe("Town ID"),
         platform_length: z
@@ -646,7 +646,7 @@ export function registerMapQueryTools(
     "survey_line",
     {
       description:
-        "Survey terrain along a straight line (same X or same Y) between two points. Returns height, slope, buildability, water for each tile. Use to plan rail routes.",
+        "Survey terrain along a straight line (same X or same Y) between two points. Requires ClaudeMCP GameScript to be loaded. Returns height, slope, buildability, water for each tile. Use to plan rail routes before calling build_rail_line or build_rail_route.",
       inputSchema: {
         from_x: z.number().describe("Start X"),
         from_y: z.number().describe("Start Y"),
@@ -676,7 +676,7 @@ export function registerMapQueryTools(
     "survey_area",
     {
       description:
-        "Survey a rectangular area of the map. Returns ASCII grid maps showing terrain types and heights. Legend: .=flat buildable, /=sloped, ~=water, #=building, +=road, r=rail, T=town center. Use to plan rail routes and station placement by visualizing terrain, obstacles, and height changes.",
+        "Survey a rectangular area of the map. Requires ClaudeMCP GameScript to be loaded. Returns ASCII grid maps showing terrain types and heights. Legend: .=flat buildable, /=sloped, ~=water, #=building, +=road, r=rail, T=town center. Use to plan rail routes and station placement by visualizing terrain, obstacles, and height changes.",
       inputSchema: {
         from_x: z.number().describe("Left X coordinate"),
         from_y: z.number().describe("Top Y coordinate"),
@@ -730,7 +730,7 @@ export function registerMapQueryTools(
     "build_rail_line",
     {
       description:
-        "Build rail track along a straight line (same X or same Y). Returns count of built segments and list of failures with error messages.",
+        "Build rail track along a straight line (same X or same Y). Requires ClaudeMCP GameScript to be loaded. Returns count of built segments and list of failures with error messages. If many segments fail, try a parallel route 1-2 tiles offset, or use build_rail_route for A* pathfinding around obstacles.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         from_x: z.number().describe("Start X"),
@@ -764,7 +764,7 @@ export function registerMapQueryTools(
     "build_road_line",
     {
       description:
-        "Build road along a straight line (same X or same Y). Returns count of built segments, failures, and auto-connected endpoints. For L-shaped routes, call twice.",
+        "Build road along a straight line (same X or same Y). Requires ClaudeMCP GameScript to be loaded. Returns count of built segments, failures, and auto-connected endpoints. For L-shaped routes, call twice. If many segments fail, try a parallel route 1-2 tiles offset, or use build_road_route for A* pathfinding around obstacles.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         from_x: z.number().describe("Start X"),
@@ -798,7 +798,7 @@ export function registerMapQueryTools(
     "check_road_connection",
     {
       description:
-        "Check if two tiles are connected by road using BFS pathfinding (max 2000 tiles). Returns whether a road path exists between the two points.",
+        "Check if two tiles are connected by road using BFS pathfinding (max 2000 tiles). Requires ClaudeMCP GameScript to be loaded. Returns whether a road path exists between the two points. Use after building road to verify connectivity, or before assigning vehicle orders to ensure vehicles can reach their stops.",
       inputSchema: {
         from_x: z.number().describe("Start tile X coordinate"),
         from_y: z.number().describe("Start tile Y coordinate"),
@@ -828,7 +828,7 @@ export function registerMapQueryTools(
     "get_tile_range",
     {
       description:
-        "Query a rectangular area of tiles. Returns a compact ASCII grid showing terrain types (. buildable, R road, * our road, # building, ~ water, S our stop) plus height grid. Max 20x20. Ideal for surveying an area before building.",
+        "Query a rectangular area of tiles. Requires ClaudeMCP GameScript to be loaded. Returns a compact ASCII grid showing terrain types (. buildable, R road, * our road, # building, ~ water, S our stop) plus height grid. Max 20x20. Ideal for surveying an area before building. For larger areas, use survey_area instead.",
       inputSchema: {
         from_x: z.number().describe("Left X coordinate of the area"),
         from_y: z.number().describe("Top Y coordinate of the area"),
@@ -862,7 +862,7 @@ export function registerMapQueryTools(
     "get_town_rating",
     {
       description:
-        "Get a company's rating with a specific town. Rating affects what you can build in the town's authority area. Returns numeric rating and label (outstanding/good/mediocre/poor/appalling/hostile).",
+        "Get a company's rating with a specific town. Requires ClaudeMCP GameScript to be loaded. Rating affects what you can build in the town's authority area. Returns numeric rating and label (outstanding/good/mediocre/poor/appalling/hostile). If rating is poor or worse, use plant_trees to improve it before building in the town.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         town_id: z.number().describe("Town ID"),
@@ -899,7 +899,7 @@ export function registerMapQueryTools(
     "plant_trees",
     {
       description:
-        "Plant trees around a location. Trees improve the local authority rating with nearby towns. Useful before building stations if your rating is too low.",
+        "Plant trees around a location. Requires ClaudeMCP GameScript to be loaded. Trees improve the local authority rating with nearby towns. Useful before building stations if your rating is too low (ERR_LOCAL_AUTHORITY_REFUSES). Plant with a large radius (5-7) for maximum effect.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Center X coordinate"),
@@ -940,7 +940,7 @@ export function registerMapQueryTools(
     "estimate_route_profit",
     {
       description:
-        "Estimate annual profit for a cargo route before building. Shows revenue per trip, trips per year, costs, payback period. Helps decide which routes to build.",
+        "Estimate annual profit for a cargo route before building. Requires ClaudeMCP GameScript to be loaded. Shows revenue per trip, trips per year, costs, payback period. Helps decide which routes to build. Money values are in the game currency (set via OPENTTD_CURRENCY env var, default GBP). Use find_route_opportunities first to identify promising routes, then estimate_route_profit to compare them.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         from_x: z.number().describe("Source tile X coordinate"),
@@ -994,7 +994,7 @@ export function registerMapQueryTools(
     "get_station_cargo",
     {
       description:
-        "Get cargo waiting at a station. Shows each cargo type with amount waiting and station rating for that cargo. Use to monitor station performance.",
+        "Get cargo waiting at a station. Requires ClaudeMCP GameScript to be loaded. Shows each cargo type with amount waiting and station rating for that cargo. Use to monitor station performance. High cargo amounts mean the station needs more vehicles — use auto_add_vehicles or clone_vehicle to add capacity.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         station_id: z.number().describe("Station ID"),
@@ -1035,7 +1035,7 @@ export function registerMapQueryTools(
     "get_subsidies",
     {
       description:
-        "List available and awarded subsidies. Subsidies offer bonus payment for specific cargo routes. Prioritize these for maximum profit.",
+        "List available and awarded subsidies. Requires ClaudeMCP GameScript to be loaded. Subsidies offer bonus payment for specific cargo routes. Prioritize these for maximum profit. Use connect_industries or connect_towns_bus/rail to fulfill subsidies before they expire.",
       inputSchema: {},
     },
     async () => {
@@ -1066,7 +1066,7 @@ export function registerMapQueryTools(
     "get_map_overview",
     {
       description:
-        "Get a high-level summary of the game: date, map size, town count, population, industries by type, subsidies, and company stats. One call to understand the entire game.",
+        "Get a high-level summary of the game: date, map size, town count, population, industries by type, subsidies, and company stats. Requires ClaudeMCP GameScript to be loaded. One call to understand the entire game. Call this first when starting to play to plan your strategy.",
       inputSchema: {
         company_id: z
           .number()
@@ -1106,7 +1106,7 @@ export function registerMapQueryTools(
     "get_cargo_payment_rates",
     {
       description:
-        "Calculate cargo payment rates sorted by profitability. Shows expected income per 100 units at given distance and transit time. Use to pick the most profitable cargo routes.",
+        "Calculate cargo payment rates sorted by profitability. Requires ClaudeMCP GameScript to be loaded. Shows expected income per 100 units at given distance and transit time. Money values are in the game currency (set via OPENTTD_CURRENCY env var, default GBP). Use to pick the most profitable cargo routes.",
       inputSchema: {
         distance: z
           .number()
@@ -1155,7 +1155,7 @@ export function registerMapQueryTools(
     "find_route_opportunities",
     {
       description:
-        "Find the best unserved routes on the map. Scans for close industry pairs (coal->power, farm->factory, etc.) and nearby big town pairs for bus routes. Returns opportunities sorted by type with distances.",
+        "Find the best unserved routes on the map. Requires ClaudeMCP GameScript to be loaded. Scans for close industry pairs (coal->power, farm->factory, etc.) and nearby big town pairs for bus routes. Returns opportunities sorted by type with distances. Use connect_industries or connect_towns_bus/rail to build the suggested routes.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         max_results: z
@@ -1197,7 +1197,7 @@ export function registerMapQueryTools(
     "get_waiting_cargo",
     {
       description:
-        "List all stations with cargo waiting for pickup. Identifies bottlenecks where more vehicles are needed. Shows cargo types and amounts per station.",
+        "List all stations with cargo waiting for pickup. Requires ClaudeMCP GameScript to be loaded. Identifies bottlenecks where more vehicles are needed. Shows cargo types and amounts per station. Use clone_vehicle on existing vehicles serving these stations to add capacity.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
       },

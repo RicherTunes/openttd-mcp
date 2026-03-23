@@ -163,7 +163,7 @@ export function registerGameControlTools(
       "set_loan",
       {
         description:
-          'Manage company loan. Actions: "info" (get current loan, max, interval), "borrow" (increase loan), "repay" (decrease loan), "repay_all" (pay off entire loan). Amount defaults to one loan interval if not specified.',
+          'Manage company loan. Requires ClaudeMCP GameScript to be loaded. Actions: "info" (get current loan, max, interval), "borrow" (increase loan), "repay" (decrease loan), "repay_all" (pay off entire loan). Amount defaults to one loan interval if not specified. Money values are in the game currency (set via OPENTTD_CURRENCY env var, default GBP).',
         inputSchema: {
           company_id: z.number().describe("Company ID"),
           action: z

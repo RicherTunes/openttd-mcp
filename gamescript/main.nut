@@ -261,6 +261,7 @@ class ClaudeMCP extends GSController {
   // 3-tile mode: prev_x/prev_y, x/y, next_x/next_y - builds rail AT (x,y)
   // Legacy mode: from_x/from_y, to_x/to_y - builds rail on BOTH tiles
   function CmdBuildRail(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local rail_type = ("rail_type" in p) ? p.rail_type : 0;
     GSRail.SetCurrentRailType(rail_type);
@@ -299,37 +300,54 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdBuildRailStation(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
     local rail_type = ("rail_type" in p) ? p.rail_type : 0;
-    local direction = this.MapRailTrack(("direction" in p) ? p.direction : 0);
+    local requested_dir = ("direction" in p) ? p.direction : 0;
     local platforms = ("num_platforms" in p) ? p.num_platforms : 2;
     local length = ("platform_length" in p) ? p.platform_length : 5;
 
     GSRail.SetCurrentRailType(rail_type);
 
+    // Try requested direction first, then the other direction
+    local direction = this.MapRailTrack(requested_dir);
     if (GSRail.BuildRailStation(tile, direction, platforms, length, GSStation.STATION_NEW)) {
-      return { success = true, result = { tile = [p.x, p.y], platforms = platforms, length = length } };
+      return { success = true, result = { tile = [p.x, p.y], platforms = platforms, length = length, direction = requested_dir } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    // Auto-try the other direction
+    local other_dir = (requested_dir == 0) ? 1 : 0;
+    local other_direction = this.MapRailTrack(other_dir);
+    if (GSRail.BuildRailStation(tile, other_direction, platforms, length, GSStation.STATION_NEW)) {
+      return { success = true, result = { tile = [p.x, p.y], platforms = platforms, length = length, direction = other_dir, note = "Built in alternate direction" } };
+    }
+    return { success = false, error = GSError.GetLastErrorString() + ". Both directions failed. The area may not be flat or clear enough for a " + platforms + "x" + length + " station. Use find_rail_station_spot to find suitable locations, or terraform to level the area." };
   }
 
   function CmdBuildRailDepot(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
     local rail_type = ("rail_type" in p) ? p.rail_type : 0;
-    local front_dir = ("direction" in p) ? p.direction : 0;
 
     GSRail.SetCurrentRailType(rail_type);
 
-    local front_tile = this.GetAdjacentTile(tile, front_dir);
-    if (GSRail.BuildRailDepot(tile, front_tile)) {
+    // Auto-try all 4 directions before failing
+    local depot_ok = false;
+    local start_dir = ("direction" in p) ? p.direction : 0;
+    for (local i = 0; i < 4 && !depot_ok; i++) {
+      local dir = (start_dir + i) % 4;
+      local front_tile = this.GetAdjacentTile(tile, dir);
+      depot_ok = GSRail.BuildRailDepot(tile, front_tile);
+    }
+    if (depot_ok) {
       return { success = true, result = { tile = [p.x, p.y] } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = "Failed to build rail depot in any direction. " + GSError.GetLastErrorString() + ". Tile may not be flat or accessible. Try an adjacent tile or use terraform to level the area first." };
   }
 
   function CmdBuildRailSignal(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
     local signal_type = ("signal_type" in p) ? p.signal_type : 0;
@@ -341,6 +359,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdBuildRoad(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local from_tile = GSMap.GetTileIndex(p.from_x, p.from_y);
     local to_tile = GSMap.GetTileIndex(p.to_x, p.to_y);
@@ -354,10 +373,18 @@ class ClaudeMCP extends GSController {
       local to_connected = this.AutoConnectRoad(to_tile);
       return { success = true, result = { from = [p.from_x, p.from_y], to = [p.to_x, p.to_y], from_connected = from_connected, to_connected = to_connected } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    local err = GSError.GetLastErrorString();
+    if (err == "ERR_AREA_NOT_CLEAR") {
+      return { success = false, error = err + ". A building or structure is on this tile. Try an adjacent tile or use demolish_tile first." };
+    }
+    if (err == "ERR_LAND_SLOPED_WRONG") {
+      return { success = false, error = err + ". Terrain slope prevents building. Try terraform to level the area first." };
+    }
+    return { success = false, error = err };
   }
 
   function CmdBuildRoadLine(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local road_type = ("road_type" in p) ? p.road_type : 0;
     GSRoad.SetCurrentRoadType(road_type);
@@ -424,6 +451,12 @@ class ClaudeMCP extends GSController {
     local start_connected = this.AutoConnectRoad(start_tile);
     local end_connected = this.AutoConnectRoad(end_tile);
 
+    if (built == 0 && failed.len() > 0) {
+      return { success = false, error = "Road could not be built on any tile. Common causes: buildings in the way (try a parallel route 1-2 tiles offset), or terrain too steep (try terraform). First failure: " + failed[0].error, result = {
+        built = built, failed = failed, total = built + failed.len()
+      }};
+    }
+
     return { success = true, result = {
       built = built, failed = failed, total = built + failed.len(),
       start_connected = start_connected, end_connected = end_connected
@@ -431,22 +464,30 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdBuildRoadDepot(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
     local road_type = ("road_type" in p) ? p.road_type : 0;
-    local front_dir = ("direction" in p) ? p.direction : 0;
 
     GSRoad.SetCurrentRoadType(road_type);
 
-    local front_tile = this.GetAdjacentTile(tile, front_dir);
-    if (GSRoad.BuildRoadDepot(tile, front_tile)) {
+    // Auto-try all 4 directions before failing
+    local depot_ok = false;
+    local start_dir = ("direction" in p) ? p.direction : 0;
+    for (local i = 0; i < 4 && !depot_ok; i++) {
+      local dir = (start_dir + i) % 4;
+      local front_tile = this.GetAdjacentTile(tile, dir);
+      depot_ok = GSRoad.BuildRoadDepot(tile, front_tile);
+    }
+    if (depot_ok) {
       local connected = this.AutoConnectRoad(tile);
       return { success = true, result = { tile = [p.x, p.y], connected_to = connected } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = "Failed to build road depot in any direction. " + GSError.GetLastErrorString() + ". Tile may not be flat or adjacent to road. Try an adjacent tile or use find_depot_spots to find suitable locations." };
   }
 
   function CmdBuildRoadStop(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
     local road_type = ("road_type" in p) ? p.road_type : 0;
@@ -482,10 +523,11 @@ class ClaudeMCP extends GSController {
     if (is_dt) {
       return { success = false, error = err + ". Drive-through stops need a STRAIGHT road tile (not a junction). Use find_drive_through_spots to find suitable tiles." };
     }
-    return { success = false, error = err };
+    return { success = false, error = err + ". Regular stops need a buildable tile adjacent to road. Use find_bus_stop_spots or find_depot_spots to find suitable locations." };
   }
 
   function CmdBuildAirport(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
     local airport_type = ("airport_type" in p) ? p.airport_type : 0;
@@ -493,20 +535,22 @@ class ClaudeMCP extends GSController {
     if (GSAirport.BuildAirport(tile, airport_type, GSStation.STATION_NEW)) {
       return { success = true, result = { tile = [p.x, p.y], type = airport_type } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = GSError.GetLastErrorString() + ". Airport needs a large flat area. Types: 0=small (3x4), 1=city (6x6), 2=heliport (1x1), 3=metropolitan (6x6), 4=international (7x7). Use survey_area to check if the area is flat and clear." };
   }
 
   function CmdBuildDock(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
 
     if (GSMarine.BuildDock(tile, GSStation.STATION_NEW)) {
       return { success = true, result = { tile = [p.x, p.y] } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = GSError.GetLastErrorString() + ". Dock must be built on a coast tile adjacent to water. Use get_tile_info to find coast tiles (is_coast=true)." };
   }
 
   function CmdBuildBridge(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local start_tile = GSMap.GetTileIndex(p.start_x, p.start_y);
     local end_tile = GSMap.GetTileIndex(p.end_x, p.end_y);
@@ -527,10 +571,12 @@ class ClaudeMCP extends GSController {
       }
       return { success = true, result = result };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    local err = GSError.GetLastErrorString();
+    return { success = false, error = err + ". Check that both endpoints are valid and the gap can be bridged. Endpoints must be on the same axis (same X or same Y). Use get_tile_info to verify terrain. Try bridge_type 0-12 for different lengths." };
   }
 
   function CmdBuildTunnel(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
     local transport = ("transport_type" in p) ? p.transport_type : "rail";
@@ -551,10 +597,11 @@ class ClaudeMCP extends GSController {
       }
       return { success = true, result = result };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = GSError.GetLastErrorString() + ". Tunnel entrance must be on a slope facing into a hill. Use get_tile_info to check terrain slope, or survey_line to find suitable hillsides." };
   }
 
   function CmdDemolishTile(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tile = GSMap.GetTileIndex(p.x, p.y);
 
@@ -569,7 +616,18 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdBuyVehicle(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
+    if (!("engine_id" in p)) return { success = false, error = "Missing required parameter: engine_id. Use get_engines to find available engine IDs." };
+    if (!("depot_x" in p) || !("depot_y" in p)) return { success = false, error = "Missing required parameter: depot_x/depot_y" };
     local company_mode = GSCompanyMode(p.company_id);
+
+    if (!GSEngine.IsValidEngine(p.engine_id)) {
+      return { success = false, error = "Invalid engine_id " + p.engine_id + ". Use get_engines to find available engine IDs." };
+    }
+    if (!GSEngine.IsBuildable(p.engine_id)) {
+      return { success = false, error = "Engine " + p.engine_id + " (" + GSEngine.GetName(p.engine_id) + ") is not buildable (may not be available yet or is obsolete). Use get_engines to find currently buildable engines." };
+    }
+
     local depot_tile = GSMap.GetTileIndex(p.depot_x, p.depot_y);
 
     // For wagons, check if the error string is ERR_NONE after build
@@ -594,7 +652,15 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdSellVehicle(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
+    if (!("vehicle_id" in p)) return { success = false, error = "Missing required parameter: vehicle_id" };
     local company_mode = GSCompanyMode(p.company_id);
+    if (!GSVehicle.IsValidVehicle(p.vehicle_id)) {
+      return { success = false, error = "Invalid vehicle_id " + p.vehicle_id + ". Use get_vehicles to find valid vehicle IDs." };
+    }
+    if (!GSVehicle.IsStoppedInDepot(p.vehicle_id)) {
+      return { success = false, error = "Vehicle must be stopped in depot to sell. Use send_vehicle_to_depot first, wait for it to arrive, then retry." };
+    }
     if (GSVehicle.SellVehicle(p.vehicle_id)) {
       return { success = true, result = {} };
     }
@@ -602,6 +668,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdStartVehicle(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     if (GSVehicle.StartStopVehicle(p.vehicle_id)) {
       return { success = true, result = { running = !GSVehicle.IsStoppedInDepot(p.vehicle_id) } };
@@ -610,6 +677,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdStopVehicle(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     if (!GSVehicle.IsStoppedInDepot(p.vehicle_id)) {
       if (GSVehicle.StartStopVehicle(p.vehicle_id)) {
@@ -621,15 +689,28 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdSendToDepot(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
+    if (!("vehicle_id" in p)) return { success = false, error = "Missing required parameter: vehicle_id" };
     local company_mode = GSCompanyMode(p.company_id);
+    if (!GSVehicle.IsValidVehicle(p.vehicle_id)) {
+      return { success = false, error = "Invalid vehicle_id " + p.vehicle_id + ". Use get_vehicles to find valid vehicle IDs." };
+    }
+    if (GSVehicle.IsStoppedInDepot(p.vehicle_id)) {
+      return { success = true, result = { already_in_depot = true } };
+    }
     if (GSVehicle.SendVehicleToDepot(p.vehicle_id)) {
       return { success = true, result = {} };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = GSError.GetLastErrorString() + ". Vehicle may not be able to find a path to a depot. Check that a depot exists on the vehicle's route." };
   }
 
   function CmdCloneVehicle(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
+    if (!("vehicle_id" in p)) return { success = false, error = "Missing required parameter: vehicle_id" };
     local company_mode = GSCompanyMode(p.company_id);
+    if (!GSVehicle.IsValidVehicle(p.vehicle_id)) {
+      return { success = false, error = "Invalid vehicle_id " + p.vehicle_id + ". Use get_vehicles to find valid vehicle IDs." };
+    }
     local depot_tile = GSVehicle.GetLocation(p.vehicle_id);
     local share = ("share_orders" in p) ? p.share_orders : true;
 
@@ -637,15 +718,24 @@ class ClaudeMCP extends GSController {
     if (GSVehicle.IsValidVehicle(clone_id)) {
       return { success = true, result = { vehicle_id = clone_id, name = GSVehicle.GetName(clone_id) } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = GSError.GetLastErrorString() + ". Vehicle must be in or near a depot to clone. Try send_vehicle_to_depot first." };
   }
 
   function CmdRefitVehicle(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
+    if (!("vehicle_id" in p)) return { success = false, error = "Missing required parameter: vehicle_id" };
+    if (!("cargo_id" in p)) return { success = false, error = "Missing required parameter: cargo_id. Use get_cargo_types to find valid cargo IDs." };
     local company_mode = GSCompanyMode(p.company_id);
+    if (!GSVehicle.IsValidVehicle(p.vehicle_id)) {
+      return { success = false, error = "Invalid vehicle_id " + p.vehicle_id + ". Use get_vehicles to find valid vehicle IDs." };
+    }
+    if (!GSVehicle.IsStoppedInDepot(p.vehicle_id)) {
+      return { success = false, error = "Vehicle must be stopped in depot to refit. Use send_vehicle_to_depot first, wait for it to arrive, then retry." };
+    }
     if (GSVehicle.RefitVehicle(p.vehicle_id, p.cargo_id)) {
       return { success = true, result = {} };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+    return { success = false, error = GSError.GetLastErrorString() + ". This vehicle may not support the requested cargo type. Use get_cargo_types to check available cargo types." };
   }
 
   // =====================================================================
@@ -653,14 +743,25 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdAddOrder(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
+    if (!("vehicle_id" in p)) return { success = false, error = "Missing required parameter: vehicle_id" };
+    if (!("station_id" in p)) return { success = false, error = "Missing required parameter: station_id. Use get_stations to find valid station IDs." };
     local company_mode = GSCompanyMode(p.company_id);
     local flags = ("order_flags" in p) ? p.order_flags : 0;
+
+    if (!GSVehicle.IsValidVehicle(p.vehicle_id)) {
+      return { success = false, error = "Invalid vehicle_id " + p.vehicle_id + ". Use get_vehicles to find valid vehicle IDs." };
+    }
+
+    if (!GSBaseStation.IsValidBaseStation(p.station_id)) {
+      return { success = false, error = "Station ID " + p.station_id + " not found. Use get_stations to find valid station IDs." };
+    }
 
     // GSOrder.AppendOrder expects a tile index, not a station ID
     // Convert station_id to tile location
     local dest = GSStation.GetLocation(p.station_id);
     if (!GSMap.IsValidTile(dest)) {
-      return { success = false, error = "Invalid station_id " + p.station_id };
+      return { success = false, error = "Station ID " + p.station_id + " has no valid location. It may have been removed. Use get_stations to find valid station IDs." };
     }
 
     if (GSOrder.AppendOrder(p.vehicle_id, dest, flags)) {
@@ -670,6 +771,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdGetOrders(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local vehicle_id = p.vehicle_id;
     local count = GSOrder.GetOrderCount(vehicle_id);
@@ -862,6 +964,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdGetVehicles(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local vehicles = [];
     local veh_list = GSVehicleList();
@@ -909,6 +1012,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdGetStations(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local stations = [];
     local stn_list = GSStationList(GSStation.STATION_ANY);
@@ -1394,6 +1498,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdAttachWagon(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local wagon_id = p.wagon_id;
     local train_id = p.train_id;
@@ -1732,6 +1837,7 @@ class ClaudeMCP extends GSController {
    * Returns count of built segments and list of failures.
    */
   function CmdBuildRailLine(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local rail_type = ("rail_type" in p) ? p.rail_type : 0;
     GSRail.SetCurrentRailType(rail_type);
@@ -1868,6 +1974,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdBuildRailRoute(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local rail_type = ("rail_type" in p) ? p.rail_type : 0;
     GSRail.SetCurrentRailType(rail_type);
@@ -2033,6 +2140,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdBuildRoadRoute(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local road_type = ("road_type" in p) ? p.road_type : 0;
     GSRoad.SetCurrentRoadType(road_type);
@@ -2211,6 +2319,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdBuildSignalsOnRoute(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local path = p.path;
     local signal_type = ("signal_type" in p) ? p.signal_type : 5;  // one-way path signal
@@ -2370,6 +2479,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdConnectTownsRail(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local rail_type = ("rail_type" in p) ? p.rail_type : 0;
     GSRail.SetCurrentRailType(rail_type);
@@ -2556,6 +2666,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdStopAllVehicles(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local ids = [];
@@ -2574,6 +2685,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdGetGameStatus(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local veh_ids = [];
@@ -2670,6 +2782,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdClearVehicleOrders(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local vehicle_id = p.vehicle_id;
 
@@ -2687,6 +2800,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdConnectIndustries(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local source_id = p.source_id;
     local dest_id = p.dest_id;
@@ -2866,6 +2980,7 @@ class ClaudeMCP extends GSController {
    * depot, buys buses, sets orders, and starts them.
    */
   function CmdConnectTownsBus(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local town_a = p.town_a_id;
     local town_b = p.town_b_id;
@@ -3055,6 +3170,7 @@ class ClaudeMCP extends GSController {
    * Vehicles still running are sent to depot - run again later to complete.
    */
   function CmdReplaceOldVehicles(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local ids = [];
@@ -3158,6 +3274,7 @@ class ClaudeMCP extends GSController {
 
   // Atomic demolish + build road in same tick (prevents town rebuilding)
   function CmdDemolishAndBuildRoad(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local tiles = ("tiles" in p) ? p.tiles : [];
     local road_type = ("road_type" in p) ? p.road_type : 0;
@@ -3254,6 +3371,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdGetTownRating(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local town_id = p.town_id;
     if (!GSTown.IsValidTown(town_id)) return { success = false, error = "Invalid town ID" };
@@ -3277,6 +3395,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdPlantTrees(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local cx = p.x;
     local cy = p.y;
@@ -3302,6 +3421,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdGetStationCargo(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local station_id = p.station_id;
 
@@ -3339,6 +3459,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdSetLoan(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local action = ("action" in p) ? p.action : "info";
 
@@ -3407,6 +3528,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdTerraform(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local x = p.x;
     local y = p.y;
@@ -3471,6 +3593,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdEstimateRouteProfit(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local from_x = p.from_x;
     local from_y = p.from_y;
@@ -3540,6 +3663,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdGetCompanyInfo(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local cid = GSCompany.ResolveCompanyID(GSCompany.COMPANY_SELF);
 
@@ -3751,6 +3875,7 @@ class ClaudeMCP extends GSController {
   // =====================================================================
 
   function CmdDiagnoseVehicles(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local ids = [];
@@ -3813,6 +3938,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdFindRouteOpportunities(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local max_results = ("max_results" in p) ? p.max_results : 5;
 
@@ -3930,6 +4056,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdGetWaitingCargo(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local stn_list = GSStationList(GSStation.STATION_ANY);
     local stn_ids = [];
@@ -3979,6 +4106,7 @@ class ClaudeMCP extends GSController {
   // Auto-scaling: find stations with waiting cargo and vehicles serving them
   // =====================================================================
   function CmdAutoAddVehicles(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local max_add = ("max_add" in p) ? p.max_add : 3;
 
@@ -4055,6 +4183,7 @@ class ClaudeMCP extends GSController {
   // Vehicle profit ranking
   // =====================================================================
   function CmdRankVehicles(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local ids = [];
@@ -4094,6 +4223,7 @@ class ClaudeMCP extends GSController {
   // Remove station by demolishing its tile
   // =====================================================================
   function CmdRemoveStation(p) {
+    if (!("company_id" in p)) return { success = false, error = "Missing required parameter: company_id" };
     local company_mode = GSCompanyMode(p.company_id);
     local x = p.x;
     local y = p.y;

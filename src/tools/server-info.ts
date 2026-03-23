@@ -179,7 +179,7 @@ export function registerServerInfoTools(
     "get_game_status",
     {
       description:
-        "Get a composite game status in one call: vehicle counts by state (running/stopped/loading/broken) and station count. More efficient than calling multiple tools separately.",
+        "Get a composite game status in one call: vehicle counts by state (running/stopped/loading/broken) and station count. Requires ClaudeMCP GameScript to be loaded. More efficient than calling multiple tools separately. Use periodically to monitor your transport empire.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
       },

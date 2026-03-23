@@ -15,7 +15,7 @@ export function registerBuildingTools(
     "build_rail",
     {
       description:
-        "Build a rail track segment between two adjacent tiles. For longer routes, call this multiple times. Use get_engines to find available rail types.",
+        "Build a rail track segment between two adjacent tiles. Requires ClaudeMCP GameScript to be loaded. For longer routes, call this multiple times or use build_rail_route for A* pathfinding. Use get_rail_types to find available rail types. On failure: if ERR_AREA_NOT_CLEAR, a building is in the way — try an adjacent tile or use demolish_tile. If ERR_LAND_SLOPED_WRONG, use terraform to level terrain first.",
       inputSchema: {
         company_id: z.number().describe("Company ID that will own the track"),
         from_x: z.number().describe("Start tile X coordinate"),
@@ -63,7 +63,7 @@ export function registerBuildingTools(
     "build_rail_station",
     {
       description:
-        "Build a train station. Must be built on rail track. Use direction 0 for NE-SW or 1 for NW-SE orientation.",
+        "Build a train station. Requires ClaudeMCP GameScript to be loaded. Both directions (0=NE-SW, 1=NW-SE) are tried automatically if the first fails. Must be placed on flat, clear terrain — use find_rail_station_spot to find suitable locations. On failure: if ERR_AREA_NOT_CLEAR, use terraform to level the area or try a different spot from find_rail_station_spot.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Station tile X coordinate"),
@@ -119,7 +119,7 @@ export function registerBuildingTools(
     "build_rail_depot",
     {
       description:
-        "Build a rail depot. Needed to buy trains. The depot faces the direction specified.",
+        "Build a rail depot. Requires ClaudeMCP GameScript to be loaded. Needed to buy trains — use buy_vehicle with the depot coordinates afterward. Direction is auto-detected — all 4 directions are tried automatically if the specified one fails. On failure: if ERR_AREA_NOT_CLEAR, try an adjacent tile or use demolish_tile. If ERR_LAND_SLOPED_WRONG, use terraform to level terrain.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Depot tile X coordinate"),
@@ -166,7 +166,7 @@ export function registerBuildingTools(
     "build_road",
     {
       description:
-        "Build a road between two tiles. Works for adjacent tiles. For longer roads, call multiple times or use build_road_route for pathfound routes.",
+        "Build a road between two tiles. Requires ClaudeMCP GameScript to be loaded. Works for adjacent tiles only. For longer roads, use build_road_line (straight) or build_road_route (A* pathfinding). On failure: if ERR_AREA_NOT_CLEAR, a building is in the way — try an adjacent tile or use demolish_tile. If ERR_LAND_SLOPED_WRONG, use terraform to level terrain.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         from_x: z.number().describe("Start tile X coordinate"),
@@ -211,7 +211,7 @@ export function registerBuildingTools(
     "build_road_depot",
     {
       description:
-        "Build a road vehicle depot. Needed to buy road vehicles (buses, trucks).",
+        "Build a road vehicle depot. Requires ClaudeMCP GameScript to be loaded. Needed to buy road vehicles (buses, trucks) — use buy_vehicle with the depot coordinates afterward. Direction is auto-detected — all 4 directions are tried automatically if the specified one fails. Use find_depot_spots to find suitable locations near a town. On failure: if ERR_AREA_NOT_CLEAR, try an adjacent tile or use demolish_tile.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Depot tile X coordinate"),
@@ -258,7 +258,7 @@ export function registerBuildingTools(
     "build_road_stop",
     {
       description:
-        "RECOMMENDED: Use is_drive_through=true for reliable stops. Regular bay stops are unreliable. Drive-through stops must be placed ON existing road tiles. Use find_drive_through_spots to find suitable locations. If ERR_ROAD_DRIVE_THROUGH_WRONG_DIRECTION, try the other direction.",
+        "Build a bus or truck stop. Requires ClaudeMCP GameScript to be loaded. RECOMMENDED: Use is_drive_through=true for reliable stops — regular bay stops are unreliable. Drive-through stops must be placed ON existing road tiles. Use find_drive_through_spots to find suitable locations. On failure: if ERR_ROAD_DRIVE_THROUGH_WRONG_DIRECTION, try the other direction (0 vs 1). If ERR_AREA_NOT_CLEAR, the tile is occupied — pick another spot from find_drive_through_spots.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Stop tile X coordinate"),
@@ -312,7 +312,7 @@ export function registerBuildingTools(
     "build_airport",
     {
       description:
-        "Build an airport. Use get_engines with vehicle_type='aircraft' to find available airport types.",
+        "Build an airport. Requires ClaudeMCP GameScript to be loaded. Airports need a large flat area — use survey_area to find clear terrain first. On failure: if ERR_AREA_NOT_CLEAR, the area has obstacles — use terraform to level it or find a different location. If ERR_LOCAL_AUTHORITY_REFUSES, plant_trees near the town to improve rating first.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Airport top-left tile X coordinate"),
@@ -355,7 +355,7 @@ export function registerBuildingTools(
   server.registerTool(
     "build_dock",
     {
-      description: "Build a ship dock on a coastal tile.",
+      description: "Build a ship dock on a coastal tile. Requires ClaudeMCP GameScript to be loaded. The tile must be adjacent to water. On failure: if ERR_AREA_NOT_CLEAR, the tile is occupied. If ERR_LAND_SLOPED_WRONG, the tile is not on a coast — use get_tile_info to find coastal tiles nearby.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Dock tile X coordinate (must be on coast)"),
@@ -394,7 +394,7 @@ export function registerBuildingTools(
     "build_bridge",
     {
       description:
-        "Build a bridge between two tiles. The tiles must be at the same height and the gap must be bridgeable.",
+        "Build a bridge between two tiles. Requires ClaudeMCP GameScript to be loaded. Tiles must be at the same height, in a straight line (same X or same Y), and the gap must be bridgeable. On failure: if ERR_LAND_SLOPED_WRONG, the endpoints are at different heights — use terraform to level them. If the bridge is too long, try bridge_type with higher ID for longer span bridges.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         bridge_type: z.number().default(0).describe("Bridge type ID"),
@@ -444,7 +444,7 @@ export function registerBuildingTools(
     "build_tunnel",
     {
       description:
-        "Build a tunnel starting from the given tile. OpenTTD automatically finds the exit on the other side of the hill.",
+        "Build a tunnel starting from the given tile. Requires ClaudeMCP GameScript to be loaded. OpenTTD automatically finds the exit on the other side of the hill. The entrance tile must be on a slope facing into the hill. On failure: if the tunnel is too long or has no valid exit, try a different approach angle or use a bridge instead.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Tunnel entrance tile X"),
@@ -488,7 +488,7 @@ export function registerBuildingTools(
     "demolish_tile",
     {
       description:
-        "Demolish/clear everything on a tile. Use with caution - this removes buildings, tracks, roads, etc.",
+        "Demolish/clear everything on a tile. Requires ClaudeMCP GameScript to be loaded. Use with caution — this removes buildings, tracks, roads, etc. Demolishing town buildings lowers your town rating. If ERR_LOCAL_AUTHORITY_REFUSES, your rating is too low — use plant_trees to improve it first.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Tile X coordinate"),
@@ -527,7 +527,7 @@ export function registerBuildingTools(
     "build_rail_signal",
     {
       description:
-        "Build a signal on a rail tile. Signals control train traffic flow.",
+        "Build a signal on a rail tile. Requires ClaudeMCP GameScript to be loaded. Signals control train traffic flow. For auto-placing signals along a route, use auto_signal_route instead. Recommended: type 5 (one-way path signal) for most use cases. On failure: the tile must have rail track — use get_tile_info to verify.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Tile X coordinate (must have rail)"),
@@ -575,7 +575,7 @@ export function registerBuildingTools(
     "build_rail_route",
     {
       description:
-        "Build a pathfound rail route between two points using A* pathfinding. Automatically routes around water, buildings, and terrain. Builds curved track where needed. Returns the path for use with auto_signal_route.",
+        "Build a pathfound rail route between two points using A* pathfinding. Requires ClaudeMCP GameScript to be loaded. Game must be unpaused for A* pathfinding to work. Automatically routes around water, buildings, and terrain. Builds curved track where needed. Returns the path array — pass it to auto_signal_route to place signals along the route. On failure: increase max_iterations for very long routes, or try different start/end points.",
       inputSchema: {
         company_id: z.number().describe("Company ID that will own the track"),
         from_x: z.number().describe("Start tile X coordinate"),
@@ -626,7 +626,7 @@ export function registerBuildingTools(
     "build_road_route",
     {
       description:
-        "Build a pathfound road route between two points using A* pathfinding. Automatically routes around water, buildings, and terrain. Can demolish buildings as a last resort. Much more reliable than manual build_road calls in dense towns.",
+        "Build a pathfound road route between two points using A* pathfinding. Requires ClaudeMCP GameScript to be loaded. Game must be unpaused for A* pathfinding to work. Automatically routes around water, buildings, and terrain. Can demolish buildings as a last resort. Much more reliable than manual build_road calls in dense towns. On failure: increase max_iterations for very long routes, or try different start/end points.",
       inputSchema: {
         company_id: z.number().describe("Company ID that will own the road"),
         from_x: z.number().describe("Start tile X coordinate"),
@@ -677,7 +677,7 @@ export function registerBuildingTools(
     "auto_signal_route",
     {
       description:
-        "Automatically place signals at regular intervals along a rail route. Use after build_rail_route. Takes the path array from build_rail_route result.",
+        "Automatically place signals at regular intervals along a rail route. Requires ClaudeMCP GameScript to be loaded. Use after build_rail_route — pass the path array from its result. Recommended signal_type=5 (one-way path signal) for most routes. On failure: ensure the path array is valid and came from a successful build_rail_route call.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         path: z
@@ -733,7 +733,7 @@ export function registerBuildingTools(
     "connect_industries",
     {
       description:
-        "Connect two industries with a complete truck route. Automatically builds road, drive-through truck stops, depot, buys trucks, and sets orders. Use get_industries to find industry IDs and get_engines for truck engine IDs.",
+        "Connect two industries with a complete truck route. Requires ClaudeMCP GameScript to be loaded. Game must be unpaused for A* pathfinding to work. Automatically builds road, drive-through truck stops, depot, buys trucks, and sets orders. Use get_industries to find industry IDs and get_engines(vehicle_type='road') for truck engine IDs. On failure: check that the industries exist and are not already fully served. If road pathfinding fails, the industries may be too far apart or separated by water.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         source_id: z.number().describe("Source industry ID (produces cargo)"),
@@ -795,7 +795,7 @@ export function registerBuildingTools(
     "connect_towns_rail",
     {
       description:
-        "High-level tool: connects two towns with a complete rail service. Automatically finds station locations, pathfinds an A* route, builds rail with curves, places signals, builds a depot, buys a train with wagons, sets up orders, and starts the train. One command for a full rail connection.",
+        "High-level tool: connects two towns with a complete rail service. Requires ClaudeMCP GameScript to be loaded. Game must be unpaused for A* pathfinding to work. Automatically finds station locations, pathfinds an A* route, builds rail with curves, places signals, builds a depot, buys a train with wagons, sets up orders, and starts the train. One command for a full rail connection. Use get_towns to find town IDs and get_engines(vehicle_type='train') for engine/wagon IDs. On failure: towns may be too far apart or terrain impassable — try connect_towns_bus for a simpler road connection.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         town_a_id: z.number().describe("First town ID"),
@@ -881,7 +881,7 @@ export function registerBuildingTools(
     "demolish_and_build_road",
     {
       description:
-        "Atomically demolish tiles and build road in the same game tick. Prevents towns from rebuilding before road is placed. Pass an array of tile coordinates — each tile is demolished then road is built to the next tile.",
+        "Atomically demolish tiles and build road in the same game tick. Requires ClaudeMCP GameScript to be loaded. Prevents towns from rebuilding before road is placed. Pass an array of tile coordinates — each tile is demolished then road is built to the next tile. Use when build_road_route cannot route through dense towns. On failure: if ERR_LOCAL_AUTHORITY_REFUSES, your town rating is too low — use plant_trees first.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         tiles: z
@@ -919,7 +919,7 @@ export function registerBuildingTools(
     "terraform",
     {
       description:
-        "Modify terrain. raise/lower changes height, level flattens area to center tile height. Use before building on hilly terrain.",
+        "Modify terrain. Requires ClaudeMCP GameScript to be loaded. raise/lower changes height by one step, level flattens area to center tile height. Use before building on hilly terrain — especially before build_rail_station or build_airport. On failure: if the tile has a building or structure on it, use demolish_tile first.",
       inputSchema: {
         company_id: z.number().describe("Company ID that will pay for terraforming"),
         x: z.number().describe("Center tile X coordinate"),
@@ -968,7 +968,7 @@ export function registerBuildingTools(
     "check_industry_catchment",
     {
       description:
-        "Check if a tile is within an industry's station catchment area. Also finds the best nearby tile (road or buildable) that IS within catchment. Use before placing truck stops to ensure cargo will be accepted.",
+        "Check if a tile is within an industry's station catchment area. Requires ClaudeMCP GameScript to be loaded. Also finds the best nearby tile (road or buildable) that IS within catchment. Use before placing truck stops to ensure cargo will be accepted. The returned best_spot can be used directly with build_road_stop.",
       inputSchema: {
         industry_id: z.number().describe("Industry ID"),
         x: z.number().describe("Tile X to check"),
@@ -1012,7 +1012,7 @@ export function registerBuildingTools(
     "remove_station",
     {
       description:
-        "Remove a station/stop at a tile by demolishing it.",
+        "Remove a station/stop at a tile by demolishing it. Requires ClaudeMCP GameScript to be loaded. Make sure no vehicles are currently loading at the station. Use get_stations to find station tile coordinates.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         x: z.number().describe("Station tile X coordinate"),
@@ -1051,7 +1051,7 @@ export function registerBuildingTools(
     "connect_towns_bus",
     {
       description:
-        "Connect two towns with a complete bus route. Automatically finds drive-through stop locations on town roads, builds connecting road, depot, buys buses, and sets orders.",
+        "Connect two towns with a complete bus route. Requires ClaudeMCP GameScript to be loaded. Game must be unpaused for A* pathfinding to work. Automatically finds drive-through stop locations on town roads, builds connecting road, depot, buys buses, and sets orders. Use get_towns to find town IDs and get_engines(vehicle_type='road') for bus engine IDs. On failure: towns may be too far apart — try reducing the distance or check that a road can physically connect them.",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
         town_a_id: z.number().describe("First town ID"),

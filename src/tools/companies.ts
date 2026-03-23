@@ -79,7 +79,7 @@ export function registerCompanyTools(
     "get_company_economy",
     {
       description:
-        "Get financial data for companies: money, loan, income, delivered cargo, and quarterly history.",
+        "Get financial data for companies: money, loan, income, delivered cargo, and quarterly history. Money values are in the game currency (set via OPENTTD_CURRENCY env var, default GBP).",
       inputSchema: {
         company_id: z
           .number()
@@ -187,7 +187,7 @@ export function registerCompanyTools(
     "get_company_info",
     {
       description:
-        "Get detailed company information: name, money, loan, quarterly income/expenses, company value.",
+        "Get detailed company information: name, money, loan, quarterly income/expenses, company value. Requires ClaudeMCP GameScript to be loaded. Money values are in the game currency (set via OPENTTD_CURRENCY env var, default GBP).",
       inputSchema: {
         company_id: z.number().describe("Company ID"),
       },

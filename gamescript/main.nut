@@ -471,9 +471,18 @@ class ClaudeMCP extends GSController {
 
     GSRoad.SetCurrentRoadType(road_type);
 
-    // Auto-try all 4 directions before failing
+    // Auto-try directions: prioritize those where front tile has road
     local depot_ok = false;
     local start_dir = ("direction" in p) ? p.direction : 0;
+    // First pass: directions with road
+    for (local i = 0; i < 4 && !depot_ok; i++) {
+      local dir = (start_dir + i) % 4;
+      local front_tile = this.GetAdjacentTile(tile, dir);
+      if (GSMap.IsValidTile(front_tile) && GSRoad.IsRoadTile(front_tile)) {
+        depot_ok = GSRoad.BuildRoadDepot(tile, front_tile);
+      }
+    }
+    // Second pass: any direction
     for (local i = 0; i < 4 && !depot_ok; i++) {
       local dir = (start_dir + i) % 4;
       local front_tile = this.GetAdjacentTile(tile, dir);
@@ -2920,18 +2929,32 @@ class ClaudeMCP extends GSController {
     local depot_spot = this.FindBuildableNear(src_spot.x, src_spot.y, 5);
     if (depot_spot == null) return { success = false, error = "No depot spot" };
 
-    // Try building depot facing each direction
+    // Build depot facing a direction where there's ROAD (not just any buildable direction)
     local depot_tile = GSMap.GetTileIndex(depot_spot.x, depot_spot.y);
     local depot_ok = false;
+    local offsets = [
+      { dx = -1, dy = 0 },  // dir 0: NE
+      { dx = 0, dy = -1 },  // dir 1: SE
+      { dx = 1, dy = 0 },   // dir 2: SW
+      { dx = 0, dy = 1 }    // dir 3: NW
+    ];
+    // First pass: try directions where front tile has road
     for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
-      depot_ok = GSRoad.BuildRoadDepot(depot_tile, GSMap.GetTileIndex(
-        depot_spot.x + ((dir == 0) ? -1 : (dir == 2) ? 1 : 0),
-        depot_spot.y + ((dir == 1) ? -1 : (dir == 3) ? 1 : 0)
-      ));
+      local front = GSMap.GetTileIndex(depot_spot.x + offsets[dir].dx, depot_spot.y + offsets[dir].dy);
+      if (GSMap.IsValidTile(front) && GSRoad.IsRoadTile(front)) {
+        depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
+      }
     }
-    // Connect depot to road
-    if (depot_ok) {
-      GSRoad.BuildRoad(depot_tile, GSMap.GetTileIndex(src_spot.x, src_spot.y));
+    // Second pass: try any direction, then connect
+    if (!depot_ok) {
+      for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
+        local front = GSMap.GetTileIndex(depot_spot.x + offsets[dir].dx, depot_spot.y + offsets[dir].dy);
+        depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
+        if (depot_ok) {
+          // Build road from depot front to nearest road
+          GSRoad.BuildRoad(front, GSMap.GetTileIndex(src_spot.x, src_spot.y));
+        }
+      }
     }
     this.Sleep(1);
 
@@ -3090,15 +3113,26 @@ class ClaudeMCP extends GSController {
 
     local depot_tile = GSMap.GetTileIndex(depot_spot.x, depot_spot.y);
     local depot_ok = false;
+    local d_offsets = [
+      { dx = -1, dy = 0 }, { dx = 0, dy = -1 },
+      { dx = 1, dy = 0 }, { dx = 0, dy = 1 }
+    ];
+    // First: try directions where front has road
     for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
-      depot_ok = GSRoad.BuildRoadDepot(depot_tile, GSMap.GetTileIndex(
-        depot_spot.x + ((dir == 0) ? -1 : (dir == 2) ? 1 : 0),
-        depot_spot.y + ((dir == 1) ? -1 : (dir == 3) ? 1 : 0)
-      ));
+      local front = GSMap.GetTileIndex(depot_spot.x + d_offsets[dir].dx, depot_spot.y + d_offsets[dir].dy);
+      if (GSMap.IsValidTile(front) && GSRoad.IsRoadTile(front)) {
+        depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
+      }
     }
-    // Connect depot to road
-    if (depot_ok) {
-      GSRoad.BuildRoad(depot_tile, GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y));
+    // Fallback: any direction, then connect
+    if (!depot_ok) {
+      for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
+        local front = GSMap.GetTileIndex(depot_spot.x + d_offsets[dir].dx, depot_spot.y + d_offsets[dir].dy);
+        depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
+        if (depot_ok) {
+          GSRoad.BuildRoad(front, GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y));
+        }
+      }
     }
     this.Sleep(1);
 

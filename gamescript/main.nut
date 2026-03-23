@@ -22,10 +22,11 @@ class ClaudeMCP extends GSController {
   CHUNK_SIZE = 10;
 
   // Yield every N iterations to stay under the opcode/tick budget.
-  // Requires script_max_opcode_till_suspend = 250000 in openttd.cfg (25x default).
-  // With 250k budget: 500 iters × 60 ops = 30,000 ops (safe margin).
-  // Higher interval = fewer Sleep() calls = commands work even while paused.
-  YIELD_INTERVAL = 500;
+  // MUST work with DEFAULT 10,000 opcode limit (don't assume 250k config).
+  // 100 iters × 60 ops = 6,000 ops (safe under 10k default).
+  // If script_max_opcode_till_suspend = 250000 in config, this is very conservative
+  // but safe. Better slow than frozen.
+  YIELD_INTERVAL = 100;
 
   function Start() {
     this.log_level = this.GetSetting("log_level");

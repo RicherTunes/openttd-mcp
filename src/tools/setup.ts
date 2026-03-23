@@ -54,6 +54,9 @@ function getProjectRoot(): string {
   return join(dirname(__filename), "..", "..");
 }
 
+/** Track the PID of the OpenTTD process launched by launch_openttd. */
+let openttdPid: number | null = null;
+
 export function registerSetupTools(server: McpServer): void {
   // ---- install_gamescript ----
   server.registerTool(
@@ -321,6 +324,7 @@ export function registerSetupTools(server: McpServer): void {
           stdio: "ignore",
         });
         child.unref();
+        openttdPid = child.pid ?? null;
 
         const mode = dedicated ? "dedicated server" : "GUI";
         const lines = [`OpenTTD launched in ${mode} mode (PID: ${child.pid}).`];
@@ -351,6 +355,51 @@ export function registerSetupTools(server: McpServer): void {
             {
               type: "text" as const,
               text: `Failed to launch OpenTTD: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  // ---- kill_openttd ----
+  server.registerTool(
+    "kill_openttd",
+    {
+      description:
+        "Kill the OpenTTD process that was launched by launch_openttd. Only works for processes started through this MCP server.",
+      inputSchema: {},
+    },
+    async () => {
+      if (!openttdPid) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No OpenTTD process tracked. Launch with launch_openttd first.",
+            },
+          ],
+        };
+      }
+      try {
+        process.kill(openttdPid);
+        const pid = openttdPid;
+        openttdPid = null;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `OpenTTD process ${pid} killed.`,
+            },
+          ],
+        };
+      } catch (err) {
+        openttdPid = null;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to kill OpenTTD: ${err instanceof Error ? err.message : String(err)}`,
             },
           ],
         };

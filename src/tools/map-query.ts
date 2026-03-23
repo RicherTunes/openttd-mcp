@@ -1227,4 +1227,34 @@ export function registerMapQueryTools(
       }
     }
   );
+
+  server.registerTool(
+    "test_route",
+    {
+      description:
+        "Test if a road route is viable between two tiles. Checks that both tiles have road/stops/depots, then verifies road connectivity via BFS. Use before buying vehicles to confirm the route works. Returns connected=true/false and a reason if not connected.",
+      inputSchema: {
+        from_x: z.number().describe("Start tile X coordinate"),
+        from_y: z.number().describe("Start tile Y coordinate"),
+        to_x: z.number().describe("End tile X coordinate"),
+        to_y: z.number().describe("End tile Y coordinate"),
+      },
+    },
+    async ({ from_x, from_y, to_x, to_y }) => {
+      try {
+        const result = await bridge.execute("test_route", {
+          from_x, from_y, to_x, to_y,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return {
+          content: [
+            { type: "text", text: `Failed: ${err instanceof Error ? err.message : String(err)}` },
+          ],
+        };
+      }
+    }
+  );
 }

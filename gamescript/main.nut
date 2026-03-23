@@ -213,6 +213,7 @@ class ClaudeMCP extends GSController {
         case "get_game_status":         return this.CmdGetGameStatus(params);
         case "get_date":                return this.CmdGetDate();
         case "check_road_connection":   return this.CmdCheckRoadConnection(params);
+        case "test_route":              return this.CmdTestRoute(params);
 
         // === Town & Station Info ===
         case "get_town_rating":         return this.CmdGetTownRating(params);
@@ -2782,7 +2783,9 @@ class ClaudeMCP extends GSController {
       ];
 
       foreach (n in neighbors) {
-        if (GSMap.IsValidTile(n) && !(n in visited) && GSRoad.IsRoadTile(n)) {
+        if (GSMap.IsValidTile(n) && !(n in visited) &&
+            (GSRoad.IsRoadTile(n) || GSRoad.IsDriveThroughRoadStationTile(n) ||
+             GSRoad.IsRoadStationTile(n) || GSRoad.IsRoadDepotTile(n))) {
           visited[n] <- true;
           queue.append(n);
         }
@@ -2797,6 +2800,21 @@ class ClaudeMCP extends GSController {
       from_x = p.from_x, from_y = p.from_y,
       to_x = p.to_x, to_y = p.to_y
     }};
+  }
+
+  function CmdTestRoute(p) {
+    local from_tile = GSMap.GetTileIndex(p.from_x, p.from_y);
+    local to_tile = GSMap.GetTileIndex(p.to_x, p.to_y);
+
+    local from_ok = GSRoad.IsRoadTile(from_tile) || GSRoad.IsDriveThroughRoadStationTile(from_tile) || GSRoad.IsRoadDepotTile(from_tile);
+    local to_ok = GSRoad.IsRoadTile(to_tile) || GSRoad.IsDriveThroughRoadStationTile(to_tile) || GSRoad.IsRoadDepotTile(to_tile);
+
+    if (!from_ok) return { success = true, result = { connected = false, reason = "No road/stop at start tile (" + p.from_x + "," + p.from_y + ")" } };
+    if (!to_ok) return { success = true, result = { connected = false, reason = "No road/stop at end tile (" + p.to_x + "," + p.to_y + ")" } };
+
+    // BFS connectivity check
+    local result = this.CmdCheckRoadConnection(p);
+    return result;
   }
 
   function CmdClearVehicleOrders(p) {
@@ -2900,6 +2918,7 @@ class ClaudeMCP extends GSController {
       );
     }
     if (!src_stop_ok) return { success = false, error = "Failed to build source truck stop: " + GSError.GetLastErrorString() };
+    this.AutoConnectRoad(src_tile);
     this.Sleep(1);
 
     local dst_tile = GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y);
@@ -2914,6 +2933,7 @@ class ClaudeMCP extends GSController {
       );
     }
     if (!dst_stop_ok) return { success = false, error = "Failed to build destination truck stop: " + GSError.GetLastErrorString() };
+    this.AutoConnectRoad(dst_tile);
     this.Sleep(1);
 
     // Phase 4: Build depot near source
@@ -2955,6 +2975,25 @@ class ClaudeMCP extends GSController {
     }
     this.Sleep(1);
 
+    // Phase 4b: Verify depot can reach both stops before buying trucks
+    local depot_to_src = this.CmdCheckRoadConnection({
+      from_x = depot_spot.x, from_y = depot_spot.y,
+      to_x = src_stop_tile.x, to_y = src_stop_tile.y
+    });
+    if (!depot_to_src.result.connected) {
+      return { success = false, error = "Depot not connected to source stop. Road may have gaps. Depot at (" + depot_spot.x + "," + depot_spot.y + "), source stop at (" + src_stop_tile.x + "," + src_stop_tile.y + ")." };
+    }
+    this.Sleep(1);
+
+    local depot_to_dst = this.CmdCheckRoadConnection({
+      from_x = depot_spot.x, from_y = depot_spot.y,
+      to_x = dst_stop_tile.x, to_y = dst_stop_tile.y
+    });
+    if (!depot_to_dst.result.connected) {
+      return { success = false, error = "Depot not connected to destination stop. Road may have gaps. Depot at (" + depot_spot.x + "," + depot_spot.y + "), dest stop at (" + dst_stop_tile.x + "," + dst_stop_tile.y + ")." };
+    }
+    this.Sleep(1);
+
     // Phase 5: Get station IDs
     local src_stn = GSStation.GetStationID(GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y));
     local dst_stn = GSStation.GetStationID(GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y));
@@ -2981,14 +3020,6 @@ class ClaudeMCP extends GSController {
         this.Sleep(1);
       }
       result.trucks_bought <- trucks.len();
-      // Cap truck_ids to 10
-      if (trucks.len() > 10) {
-        local capped = [];
-        for (local i = 0; i < 10; i++) capped.append(trucks[i]);
-        result.truck_ids <- capped;
-      } else {
-        result.truck_ids <- trucks;
-      }
     }
 
     return { success = true, result = result };
@@ -3064,6 +3095,7 @@ class ClaudeMCP extends GSController {
       );
     }
     if (!stop_a_ok) return { success = false, error = "Failed to build bus stop in town A: " + GSError.GetLastErrorString() };
+    this.AutoConnectRoad(tile_a);
     this.Sleep(1);
 
     local tile_b = GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y);
@@ -3078,6 +3110,7 @@ class ClaudeMCP extends GSController {
       );
     }
     if (!stop_b_ok) return { success = false, error = "Failed to build bus stop in town B: " + GSError.GetLastErrorString() };
+    this.AutoConnectRoad(tile_b);
     this.Sleep(1);
 
     // Phase 5: Build depot near town A
@@ -3113,6 +3146,25 @@ class ClaudeMCP extends GSController {
     // CRITICAL: Connect depot to ALL adjacent road tiles
     if (depot_ok) {
       this.AutoConnectRoad(depot_tile);
+    }
+    this.Sleep(1);
+
+    // Phase 5b: Verify depot can reach both stops before buying buses
+    local depot_to_a = this.CmdCheckRoadConnection({
+      from_x = depot_spot.x, from_y = depot_spot.y,
+      to_x = stop_a_tile.x, to_y = stop_a_tile.y
+    });
+    if (!depot_to_a.result.connected) {
+      return { success = false, error = "Depot not connected to stop A. Road may have gaps. Depot at (" + depot_spot.x + "," + depot_spot.y + "), stop A at (" + stop_a_tile.x + "," + stop_a_tile.y + ")." };
+    }
+    this.Sleep(1);
+
+    local depot_to_b = this.CmdCheckRoadConnection({
+      from_x = depot_spot.x, from_y = depot_spot.y,
+      to_x = stop_b_tile.x, to_y = stop_b_tile.y
+    });
+    if (!depot_to_b.result.connected) {
+      return { success = false, error = "Depot not connected to stop B. Road may have gaps. Depot at (" + depot_spot.x + "," + depot_spot.y + "), stop B at (" + stop_b_tile.x + "," + stop_b_tile.y + ")." };
     }
     this.Sleep(1);
 
@@ -3163,13 +3215,6 @@ class ClaudeMCP extends GSController {
 
     result.engine_id <- engine_id;
     result.buses_bought <- buses.len();
-    if (buses.len() > 10) {
-      local capped = [];
-      for (local i = 0; i < 10; i++) capped.append(buses[i]);
-      result.bus_ids <- capped;
-    } else {
-      result.bus_ids <- buses;
-    }
 
     return { success = true, result = result };
   }

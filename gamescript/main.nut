@@ -33,17 +33,13 @@ class ClaudeMCP extends GSController {
     this.Log(1, "ClaudeMCP GameScript v3 started");
 
     // Main loop - process admin port events
-    // CRITICAL: try/catch is here at the TOP level, with Sleep OUTSIDE it.
-    // Sleep() and DoCommands inside try/catch causes Script_FatalError
-    // in OpenTTD's Squirrel VM due to _can_suspend flag leaking.
+    // NO try/catch anywhere in the GameScript. The Squirrel VM's _can_suspend
+    // flag leaks when Script_Suspend (from DoCommands/Sleep) propagates through
+    // catch blocks, causing Script_FatalError on subsequent DoCommands.
+    // If a command errors, the script dies — but that's better than silently
+    // dying and leaving ALL future commands hanging forever.
     while (true) {
-      try {
-        this.HandleEvents();
-      } catch (e) {
-        local err = "";
-        try { err = "" + e; } catch (e2) { err = "(exception)"; }
-        this.Log(1, "Error in HandleEvents: " + err);
-      }
+      this.HandleEvents();
       this.Sleep(1);
     }
   }
@@ -1073,31 +1069,28 @@ class ClaudeMCP extends GSController {
     foreach (eng_id, _ in eng_list) ids.append(eng_id);
     for (local i = 0; i < ids.len(); i++) {
       local eng_id = ids[i];
-      try {
-        if (!GSEngine.IsBuildable(eng_id)) continue;
+      if (!GSEngine.IsValidEngine(eng_id)) continue;
+      if (!GSEngine.IsBuildable(eng_id)) continue;
 
-        local info = {
-          id = eng_id,
-          name = GSEngine.GetName(eng_id),
-          cargo_type = GSEngine.GetCargoType(eng_id),
-          capacity = GSEngine.GetCapacity(eng_id),
-          max_speed = GSEngine.GetMaxSpeed(eng_id),
-          price = GSEngine.GetPrice(eng_id),
-          running_cost = GSEngine.GetRunningCost(eng_id),
-          reliability = GSEngine.GetReliability(eng_id)
-        };
+      local info = {
+        id = eng_id,
+        name = GSEngine.GetName(eng_id),
+        cargo_type = GSEngine.GetCargoType(eng_id),
+        capacity = GSEngine.GetCapacity(eng_id),
+        max_speed = GSEngine.GetMaxSpeed(eng_id),
+        price = GSEngine.GetPrice(eng_id),
+        running_cost = GSEngine.GetRunningCost(eng_id),
+        reliability = GSEngine.GetReliability(eng_id)
+      };
 
-        // Power, weight, is_wagon are only valid for rail vehicles
-        if (vt == GSVehicle.VT_RAIL) {
-          info.rawset("power", GSEngine.GetPower(eng_id));
-          info.rawset("weight", GSEngine.GetWeight(eng_id));
-          info.rawset("is_wagon", GSEngine.IsWagon(eng_id));
-        }
-
-        engines.append(info);
-      } catch (e) {
-        this.Log(1, "Error reading engine " + eng_id + ": " + e);
+      // Power, weight, is_wagon are only valid for rail vehicles
+      if (vt == GSVehicle.VT_RAIL) {
+        info.rawset("power", GSEngine.GetPower(eng_id));
+        info.rawset("weight", GSEngine.GetWeight(eng_id));
+        info.rawset("is_wagon", GSEngine.IsWagon(eng_id));
       }
+
+      engines.append(info);
       if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
     }
 

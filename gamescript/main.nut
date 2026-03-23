@@ -1454,15 +1454,15 @@ class ClaudeMCP extends GSController {
         local t_w = GSMap.GetTileIndex(x-1, y);
         local t_e = GSMap.GetTileIndex(x+1, y);
 
-        if (GSMap.IsValidTile(t_n) && GSRoad.IsRoadTile(t_n) &&
-            GSMap.IsValidTile(t_s) && GSRoad.IsRoadTile(t_s)) {
-          dir = 0;
-        }
-        if (GSMap.IsValidTile(t_w) && GSRoad.IsRoadTile(t_w) &&
-            GSMap.IsValidTile(t_e) && GSRoad.IsRoadTile(t_e)) {
-          if (dir == -1) dir = 1;
-          // If both directions work, prefer the one with longer road stretch
-        }
+        local has_ns = GSMap.IsValidTile(t_n) && GSRoad.IsRoadTile(t_n) &&
+                       GSMap.IsValidTile(t_s) && GSRoad.IsRoadTile(t_s);
+        local has_ew = GSMap.IsValidTile(t_w) && GSRoad.IsRoadTile(t_w) &&
+                       GSMap.IsValidTile(t_e) && GSRoad.IsRoadTile(t_e);
+
+        // Junctions (road on all 4 sides) can't have drive-through stops
+        if (has_ns && has_ew) continue;
+        if (has_ns) dir = 0;
+        else if (has_ew) dir = 1;
 
         if (dir == -1) continue;
 
@@ -3249,17 +3249,35 @@ class ClaudeMCP extends GSController {
   }
 
   // Helper: find a road tile near given coordinates
+  // Find a STRAIGHT road tile (not a junction) suitable for drive-through stops
   function FindRoadTileNear(cx, cy, radius) {
     local ops = 0;
     for (local r = 0; r <= radius; r++) {
       for (local dy = -r; dy <= r; dy++) {
         for (local dx = -r; dx <= r; dx++) {
           if (r > 0 && abs(dx) != r && abs(dy) != r) continue;
-          local tile = GSMap.GetTileIndex(cx + dx, cy + dy);
-          if (GSMap.IsValidTile(tile) && GSRoad.IsRoadTile(tile)) {
-            return { x = cx + dx, y = cy + dy };
+          local x = cx + dx;
+          local y = cy + dy;
+          local tile = GSMap.GetTileIndex(x, y);
+          if (!GSMap.IsValidTile(tile) || !GSRoad.IsRoadTile(tile)) {
+            if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+            continue;
           }
-          if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+          // Skip junctions — check that road doesn't exist on ALL 4 sides
+          local t_n = GSMap.GetTileIndex(x, y-1);
+          local t_s = GSMap.GetTileIndex(x, y+1);
+          local t_w = GSMap.GetTileIndex(x-1, y);
+          local t_e = GSMap.GetTileIndex(x+1, y);
+          local has_ns = GSMap.IsValidTile(t_n) && GSRoad.IsRoadTile(t_n) &&
+                         GSMap.IsValidTile(t_s) && GSRoad.IsRoadTile(t_s);
+          local has_ew = GSMap.IsValidTile(t_w) && GSRoad.IsRoadTile(t_w) &&
+                         GSMap.IsValidTile(t_e) && GSRoad.IsRoadTile(t_e);
+          if (has_ns && has_ew) {
+            // Junction — skip, can't place drive-through here
+            if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
+            continue;
+          }
+          return { x = x, y = y };
         }
       }
     }

@@ -2824,6 +2824,13 @@ class ClaudeMCP extends GSController {
     local result = {};
     GSRoad.SetCurrentRoadType(road_type);
 
+    // Pre-check: sufficient funds (rough estimate: road + stops + depot + trucks)
+    local money = GSCompany.GetBankBalance(GSCompany.COMPANY_SELF);
+    local estimated_cost = 20000; // rough minimum for a route
+    if (money < estimated_cost) {
+      return { success = false, error = "Insufficient funds. Need at least ~$20,000. Current: $" + money + ". Use set_loan to borrow more." };
+    }
+
     // Phase 1: Find buildable tiles near source and destination
     local src_loc = GSIndustry.GetLocation(source_id);
     local dst_loc = GSIndustry.GetLocation(dest_id);
@@ -2844,45 +2851,20 @@ class ClaudeMCP extends GSController {
     if (dst_spot == null) return { success = false, error = "No buildable tile near destination industry" };
     this.Sleep(1);
 
-    // Phase 2: Build road from source to destination (L-shaped)
-    // First build horizontal, then vertical
-    local mid_x = dst_spot.x;
-    local mid_y = src_spot.y;
+    // Phase 2: Build road using A* pathfinding (handles water, buildings, terrain)
+    local route_result = this.CmdBuildRoadRoute({
+      company_id = p.company_id,
+      from_x = src_spot.x, from_y = src_spot.y,
+      to_x = dst_spot.x, to_y = dst_spot.y,
+      road_type = road_type,
+      max_iterations = 10000
+    });
 
-    local built1 = 0;
-    local built2 = 0;
-
-    // Horizontal leg
-    if (src_spot.x != mid_x) {
-      local step = (mid_x > src_spot.x) ? 1 : -1;
-      local x = src_spot.x;
-      local road_ops = 0;
-      while (x != mid_x) {
-        local from_t = GSMap.GetTileIndex(x, src_spot.y);
-        local to_t = GSMap.GetTileIndex(x + step, src_spot.y);
-        if (GSRoad.BuildRoad(from_t, to_t)) built1++;
-        x += step;
-        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
-      }
+    if (!route_result.success) {
+      return { success = false, error = "Road pathfinding failed: " + (("error" in route_result) ? route_result.error : "unknown") + ". Industries may be separated by water or impassable terrain." };
     }
-    this.Sleep(1);
 
-    // Vertical leg
-    if (mid_y != dst_spot.y) {
-      local step = (dst_spot.y > mid_y) ? 1 : -1;
-      local y = mid_y;
-      local road_ops = 0;
-      while (y != dst_spot.y) {
-        local from_t = GSMap.GetTileIndex(mid_x, y);
-        local to_t = GSMap.GetTileIndex(mid_x, y + step);
-        if (GSRoad.BuildRoad(from_t, to_t)) built2++;
-        y += step;
-        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
-      }
-    }
-    this.Sleep(1);
-
-    result.road_built <- built1 + built2;
+    result.road_built <- ("result" in route_result && "built" in route_result.result) ? route_result.result.built : 0;
 
     // Phase 3: Build drive-through stops on the road
     // Find road tiles near source and dest for drive-through stops
@@ -3038,44 +3020,20 @@ class ClaudeMCP extends GSController {
     if (stop_b_tile == null) return { success = false, error = "No road tile found near town B" };
     this.Sleep(1);
 
-    // Phase 3: Build connecting road (L-shaped: horizontal then vertical)
-    local mid_x = stop_b_tile.x;
-    local mid_y = stop_a_tile.y;
+    // Phase 3: Build connecting road using A* pathfinding (handles water, buildings, terrain)
+    local route_result = this.CmdBuildRoadRoute({
+      company_id = p.company_id,
+      from_x = stop_a_tile.x, from_y = stop_a_tile.y,
+      to_x = stop_b_tile.x, to_y = stop_b_tile.y,
+      road_type = road_type,
+      max_iterations = 10000
+    });
 
-    local built1 = 0;
-    local built2 = 0;
-
-    // Horizontal leg
-    if (stop_a_tile.x != mid_x) {
-      local step = (mid_x > stop_a_tile.x) ? 1 : -1;
-      local x = stop_a_tile.x;
-      local road_ops = 0;
-      while (x != mid_x) {
-        local from_t = GSMap.GetTileIndex(x, stop_a_tile.y);
-        local to_t = GSMap.GetTileIndex(x + step, stop_a_tile.y);
-        if (GSRoad.BuildRoad(from_t, to_t)) built1++;
-        x += step;
-        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
-      }
+    if (!route_result.success) {
+      return { success = false, error = "Road pathfinding failed: " + (("error" in route_result) ? route_result.error : "unknown") + ". Towns may be separated by water or impassable terrain." };
     }
-    this.Sleep(1);
 
-    // Vertical leg
-    if (mid_y != stop_b_tile.y) {
-      local step = (stop_b_tile.y > mid_y) ? 1 : -1;
-      local y = mid_y;
-      local road_ops = 0;
-      while (y != stop_b_tile.y) {
-        local from_t = GSMap.GetTileIndex(mid_x, y);
-        local to_t = GSMap.GetTileIndex(mid_x, y + step);
-        if (GSRoad.BuildRoad(from_t, to_t)) built2++;
-        y += step;
-        if (++road_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
-      }
-    }
-    this.Sleep(1);
-
-    result.road_built <- built1 + built2;
+    result.road_built <- ("result" in route_result && "built" in route_result.result) ? route_result.result.built : 0;
 
     // Phase 4: Build drive-through bus stops
     // API: BuildDriveThroughRoadStation(tile, front, road_veh_type, station_id)

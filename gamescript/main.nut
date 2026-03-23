@@ -23,8 +23,8 @@ class ClaudeMCP extends GSController {
 
   // Yield every N iterations to stay under OpenTTD's 10,000 opcode/tick budget.
   // API calls cost ~8-10 opcodes each; loop bodies with 4-5 calls ≈ 60+ ops/iter.
-  // 50 iters × 60 ops ≈ 3,000 ops per chunk (safe margin under 10,000).
-  YIELD_INTERVAL = 50;
+  // 25 iters × 60 ops ≈ 1,500 ops per chunk (very safe margin under 10,000).
+  YIELD_INTERVAL = 25;
 
   function Start() {
     this.log_level = this.GetSetting("log_level");

@@ -8,6 +8,21 @@ import { AdminClient } from "../admin-client.js";
 import { GameScriptBridge } from "../gamescript/bridge.js";
 import { COLOUR_NAMES } from "../types/openttd.js";
 
+// OpenTTD stores money in GBP (base unit). Client displays with currency multiplier.
+// Set OPENTTD_CURRENCY env var to match your in-game currency setting.
+const CURRENCY = process.env.OPENTTD_CURRENCY ?? "GBP";
+const CURRENCY_RATES: Record<string, { symbol: string; rate: number }> = {
+  GBP: { symbol: "£", rate: 1 },
+  USD: { symbol: "$", rate: 2 },
+  EUR: { symbol: "€", rate: 2 },
+};
+const { symbol: CURRENCY_SYMBOL, rate: CURRENCY_RATE } = CURRENCY_RATES[CURRENCY] ?? { symbol: "£", rate: 1 };
+
+function formatMoney(baseAmount: number | string | bigint): string {
+  const num = typeof baseAmount === "bigint" ? Number(baseAmount) : typeof baseAmount === "string" ? parseInt(baseAmount, 10) : baseAmount;
+  return `${CURRENCY_SYMBOL}${(num * CURRENCY_RATE).toLocaleString()}`;
+}
+
 export function registerCompanyTools(
   server: McpServer,
   client: AdminClient,
@@ -81,9 +96,9 @@ export function registerCompanyTools(
 
       const formatted = economies.map((e) => ({
         companyId: e.companyId,
-        money: e.money.toString(),
-        currentLoan: e.currentLoan.toString(),
-        income: e.income.toString(),
+        money: formatMoney(e.money),
+        currentLoan: formatMoney(e.currentLoan),
+        income: formatMoney(e.income),
         deliveredCargo: e.deliveredCargo,
         quarters: e.quarters.map((q) => ({
           companyValue: q.companyValue.toString(),

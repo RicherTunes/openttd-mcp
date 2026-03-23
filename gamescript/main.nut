@@ -2930,10 +2930,12 @@ class ClaudeMCP extends GSController {
       { dx = 0, dy = 1 }    // dir 3: NW
     ];
     // First pass: try directions where front tile has road
+    local depot_front = null;
     for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
       local front = GSMap.GetTileIndex(depot_spot.x + offsets[dir].dx, depot_spot.y + offsets[dir].dy);
       if (GSMap.IsValidTile(front) && GSRoad.IsRoadTile(front)) {
         depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
+        if (depot_ok) depot_front = front;
       }
     }
     // Second pass: try any direction, then connect
@@ -2942,10 +2944,14 @@ class ClaudeMCP extends GSController {
         local front = GSMap.GetTileIndex(depot_spot.x + offsets[dir].dx, depot_spot.y + offsets[dir].dy);
         depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
         if (depot_ok) {
-          // Build road from depot front to nearest road
+          depot_front = front;
           GSRoad.BuildRoad(front, GSMap.GetTileIndex(src_spot.x, src_spot.y));
         }
       }
+    }
+    // CRITICAL: Connect depot to ALL adjacent road tiles
+    if (depot_ok) {
+      this.AutoConnectRoad(depot_tile);
     }
     this.Sleep(1);
 
@@ -3085,10 +3091,12 @@ class ClaudeMCP extends GSController {
       { dx = 1, dy = 0 }, { dx = 0, dy = 1 }
     ];
     // First: try directions where front has road
+    local bus_depot_front = null;
     for (local dir = 0; dir <= 3 && !depot_ok; dir++) {
       local front = GSMap.GetTileIndex(depot_spot.x + d_offsets[dir].dx, depot_spot.y + d_offsets[dir].dy);
       if (GSMap.IsValidTile(front) && GSRoad.IsRoadTile(front)) {
         depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
+        if (depot_ok) bus_depot_front = front;
       }
     }
     // Fallback: any direction, then connect
@@ -3097,9 +3105,14 @@ class ClaudeMCP extends GSController {
         local front = GSMap.GetTileIndex(depot_spot.x + d_offsets[dir].dx, depot_spot.y + d_offsets[dir].dy);
         depot_ok = GSRoad.BuildRoadDepot(depot_tile, front);
         if (depot_ok) {
+          bus_depot_front = front;
           GSRoad.BuildRoad(front, GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y));
         }
       }
+    }
+    // CRITICAL: Connect depot to ALL adjacent road tiles
+    if (depot_ok) {
+      this.AutoConnectRoad(depot_tile);
     }
     this.Sleep(1);
 

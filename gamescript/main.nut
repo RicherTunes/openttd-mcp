@@ -461,7 +461,14 @@ class ClaudeMCP extends GSController {
 
     local ok = false;
     if (is_dt) {
+      // Auto-try both directions for drive-through stops
       ok = GSRoad.BuildDriveThroughRoadStation(tile, front_tile, road_stop_type, GSStation.STATION_NEW);
+      if (!ok) {
+        // Try the other direction
+        local other_dir = (direction == 0) ? 1 : 0;
+        local other_front = this.GetAdjacentTile(tile, other_dir);
+        ok = GSRoad.BuildDriveThroughRoadStation(tile, other_front, road_stop_type, GSStation.STATION_NEW);
+      }
     } else {
       ok = GSRoad.BuildRoadStation(tile, front_tile, road_stop_type, GSStation.STATION_NEW);
     }
@@ -470,7 +477,12 @@ class ClaudeMCP extends GSController {
       local connected = this.AutoConnectRoad(tile);
       return { success = true, result = { tile = [p.x, p.y], type = is_truck ? "truck" : "bus", connected_to = connected } };
     }
-    return { success = false, error = GSError.GetLastErrorString() };
+
+    local err = GSError.GetLastErrorString();
+    if (is_dt) {
+      return { success = false, error = err + ". Drive-through stops need a STRAIGHT road tile (not a junction). Use find_drive_through_spots to find suitable tiles." };
+    }
+    return { success = false, error = err };
   }
 
   function CmdBuildAirport(p) {

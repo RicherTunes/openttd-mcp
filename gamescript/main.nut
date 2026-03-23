@@ -2357,6 +2357,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdConnectTownsRail(p) {
+    try {
     local company_mode = GSCompanyMode(p.company_id);
     local rail_type = ("rail_type" in p) ? p.rail_type : 0;
     GSRail.SetCurrentRailType(rail_type);
@@ -2507,6 +2508,11 @@ class ClaudeMCP extends GSController {
     }
 
     return { success = true, result = result };
+    } catch (e) {
+      local err = "";
+      try { err = "" + e; } catch (e2) { err = "(exception)"; }
+      return { success = false, error = "ConnectTownsRail failed: " + err };
+    }
   }
 
   // =====================================================================
@@ -2674,6 +2680,7 @@ class ClaudeMCP extends GSController {
   }
 
   function CmdConnectIndustries(p) {
+    try {
     local company_mode = GSCompanyMode(p.company_id);
     local source_id = p.source_id;
     local dest_id = p.dest_id;
@@ -2757,27 +2764,36 @@ class ClaudeMCP extends GSController {
     }
     this.Sleep(1);
 
-    // Try building drive-through truck stops (try both directions)
+    // Try building drive-through truck stops
+    // API: BuildDriveThroughRoadStation(tile, front, road_veh_type, station_id)
+    // front must be != tile, on the same axis — determines orientation
+    local src_tile = GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y);
     local src_stop_ok = false;
-    for (local dir = 0; dir <= 1 && !src_stop_ok; dir++) {
-      src_stop_ok = GSRoad.BuildDriveThroughRoadStop(
-        GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y),
-        GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y),
-        road_type, GSStation.STATION_NEW, true, dir  // true = truck stop
+    // Try front tile in X direction, then Y direction
+    local src_fronts = [
+      GSMap.GetTileIndex(src_stop_tile.x + 1, src_stop_tile.y),
+      GSMap.GetTileIndex(src_stop_tile.x, src_stop_tile.y + 1)
+    ];
+    for (local dir = 0; dir < src_fronts.len() && !src_stop_ok; dir++) {
+      src_stop_ok = GSRoad.BuildDriveThroughRoadStation(
+        src_tile, src_fronts[dir], GSRoad.ROADVEHTYPE_TRUCK, GSStation.STATION_NEW
       );
     }
-    if (!src_stop_ok) return { success = false, error = "Failed to build source truck stop" };
+    if (!src_stop_ok) return { success = false, error = "Failed to build source truck stop: " + GSError.GetLastErrorString() };
     this.Sleep(1);
 
+    local dst_tile = GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y);
     local dst_stop_ok = false;
-    for (local dir = 0; dir <= 1 && !dst_stop_ok; dir++) {
-      dst_stop_ok = GSRoad.BuildDriveThroughRoadStop(
-        GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y),
-        GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y),
-        road_type, GSStation.STATION_NEW, true, dir
+    local dst_fronts = [
+      GSMap.GetTileIndex(dst_stop_tile.x + 1, dst_stop_tile.y),
+      GSMap.GetTileIndex(dst_stop_tile.x, dst_stop_tile.y + 1)
+    ];
+    for (local dir = 0; dir < dst_fronts.len() && !dst_stop_ok; dir++) {
+      dst_stop_ok = GSRoad.BuildDriveThroughRoadStation(
+        dst_tile, dst_fronts[dir], GSRoad.ROADVEHTYPE_TRUCK, GSStation.STATION_NEW
       );
     }
-    if (!dst_stop_ok) return { success = false, error = "Failed to build destination truck stop" };
+    if (!dst_stop_ok) return { success = false, error = "Failed to build destination truck stop: " + GSError.GetLastErrorString() };
     this.Sleep(1);
 
     // Phase 4: Build depot near source
@@ -2836,6 +2852,11 @@ class ClaudeMCP extends GSController {
     }
 
     return { success = true, result = result };
+    } catch (e) {
+      local err = "";
+      try { err = "" + e; } catch (e2) { err = "(exception)"; }
+      return { success = false, error = "ConnectIndustries failed: " + err };
+    }
   }
 
   /**
@@ -2844,6 +2865,7 @@ class ClaudeMCP extends GSController {
    * depot, buys buses, sets orders, and starts them.
    */
   function CmdConnectTownsBus(p) {
+    try {
     local company_mode = GSCompanyMode(p.company_id);
     local town_a = p.town_a_id;
     local town_b = p.town_b_id;
@@ -2916,27 +2938,35 @@ class ClaudeMCP extends GSController {
 
     result.road_built <- built1 + built2;
 
-    // Phase 4: Build drive-through bus stops (try both directions)
+    // Phase 4: Build drive-through bus stops
+    // API: BuildDriveThroughRoadStation(tile, front, road_veh_type, station_id)
+    // front must be != tile, on the same axis — determines orientation
+    local tile_a = GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y);
     local stop_a_ok = false;
-    for (local dir = 0; dir <= 1 && !stop_a_ok; dir++) {
-      stop_a_ok = GSRoad.BuildDriveThroughRoadStop(
-        GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y),
-        GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y),
-        road_type, GSStation.STATION_NEW, false, dir  // false = bus stop
+    local fronts_a = [
+      GSMap.GetTileIndex(stop_a_tile.x + 1, stop_a_tile.y),
+      GSMap.GetTileIndex(stop_a_tile.x, stop_a_tile.y + 1)
+    ];
+    for (local dir = 0; dir < fronts_a.len() && !stop_a_ok; dir++) {
+      stop_a_ok = GSRoad.BuildDriveThroughRoadStation(
+        tile_a, fronts_a[dir], GSRoad.ROADVEHTYPE_BUS, GSStation.STATION_NEW
       );
     }
-    if (!stop_a_ok) return { success = false, error = "Failed to build bus stop in town A" };
+    if (!stop_a_ok) return { success = false, error = "Failed to build bus stop in town A: " + GSError.GetLastErrorString() };
     this.Sleep(1);
 
+    local tile_b = GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y);
     local stop_b_ok = false;
-    for (local dir = 0; dir <= 1 && !stop_b_ok; dir++) {
-      stop_b_ok = GSRoad.BuildDriveThroughRoadStop(
-        GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y),
-        GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y),
-        road_type, GSStation.STATION_NEW, false, dir
+    local fronts_b = [
+      GSMap.GetTileIndex(stop_b_tile.x + 1, stop_b_tile.y),
+      GSMap.GetTileIndex(stop_b_tile.x, stop_b_tile.y + 1)
+    ];
+    for (local dir = 0; dir < fronts_b.len() && !stop_b_ok; dir++) {
+      stop_b_ok = GSRoad.BuildDriveThroughRoadStation(
+        tile_b, fronts_b[dir], GSRoad.ROADVEHTYPE_BUS, GSStation.STATION_NEW
       );
     }
-    if (!stop_b_ok) return { success = false, error = "Failed to build bus stop in town B" };
+    if (!stop_b_ok) return { success = false, error = "Failed to build bus stop in town B: " + GSError.GetLastErrorString() };
     this.Sleep(1);
 
     // Phase 5: Build depot near town A
@@ -3017,6 +3047,11 @@ class ClaudeMCP extends GSController {
     }
 
     return { success = true, result = result };
+    } catch (e) {
+      local err = "";
+      try { err = "" + e; } catch (e2) { err = "(exception)"; }
+      return { success = false, error = "ConnectTownsBus failed: " + err };
+    }
   }
 
   /**
@@ -3025,6 +3060,7 @@ class ClaudeMCP extends GSController {
    * Vehicles still running are sent to depot - run again later to complete.
    */
   function CmdReplaceOldVehicles(p) {
+    try {
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local ids = [];
@@ -3082,6 +3118,11 @@ class ClaudeMCP extends GSController {
       sent_to_depot = sent_to_depot,
       total_checked = ids.len()
     }};
+    } catch (e) {
+      local err = "";
+      try { err = "" + e; } catch (e2) { err = "(exception)"; }
+      return { success = false, error = "ReplaceOldVehicles failed: " + err };
+    }
   }
 
   // Helper: find a flat buildable tile near given coordinates

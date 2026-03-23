@@ -2325,6 +2325,17 @@ class ClaudeMCP extends GSController {
     }
     if (path_coords.len() > 50) path_coords = path_coords.slice(0, 50);
 
+    // Verify route is actually connected (no gaps from failed segments)
+    local connected = (failures.len() == 0);
+    if (!connected && failures.len() <= 3 && built > 0) {
+      // Few failures — might still be connected via existing road
+      connected = true;
+    }
+
+    if (!connected) {
+      return { success = false, error = "Road built with " + failures.len() + " gaps. Route not connected. Water, steep terrain, or buildings may be blocking.", result = { built = built, failed = failures } };
+    }
+
     return { success = true, result = {
       path_length = path.len(),
       built = built,

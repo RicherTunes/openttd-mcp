@@ -844,8 +844,10 @@ export class AdminClient extends EventEmitter {
   ): Promise<string[]> {
     await this.ensureConnected();
     if (!this.socket) throw new Error("Not connected to server");
-    if (this.pendingRcon) {
-      throw new Error("Another RCON command is already pending");
+
+    // Wait for any pending RCON command to complete before sending
+    while (this.pendingRcon) {
+      await new Promise(r => setTimeout(r, 100));
     }
 
     return new Promise((resolve, reject) => {

@@ -13,7 +13,7 @@ export class GameScriptBridge {
   async send(
     action: string,
     params: Record<string, unknown> = {},
-    timeoutMs: number = 10000
+    timeoutMs: number = 30000
   ): Promise<GameScriptResponse> {
     return this.client.sendGameScriptCommand(action, params, timeoutMs);
   }
@@ -22,7 +22,7 @@ export class GameScriptBridge {
   async execute(
     action: string,
     params: Record<string, unknown> = {},
-    timeoutMs: number = 10000
+    timeoutMs: number = 30000
   ): Promise<unknown> {
     const response = await this.send(action, params, timeoutMs);
     if (!response.success) {

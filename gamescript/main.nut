@@ -68,8 +68,13 @@ class ClaudeMCP extends GSController {
       }
 
       // NO try/catch here — Sleep() and DoCommands must NOT be inside try blocks
+      local cmd_id = data.id;
       local result = this.DispatchCommand(data);
-      this.SendResponse(data.id, result);
+      if (result == null) {
+        this.SendResponse(cmd_id, { success = false, error = "Command returned null" });
+      } else {
+        this.SendResponse(cmd_id, result);
+      }
 
       // Yield between events to avoid opcode overflow from queued commands
       if (++events_processed % 3 == 0) this.Sleep(1);
@@ -1211,6 +1216,7 @@ class ClaudeMCP extends GSController {
     }
 
     local radius = ("radius" in p) ? p.radius : 15;
+    if (radius > 20) radius = 20;
     local loc = GSTown.GetLocation(town_id);
     local cx = GSMap.GetTileX(loc);
     local cy = GSMap.GetTileY(loc);
@@ -1284,6 +1290,7 @@ class ClaudeMCP extends GSController {
     }
 
     local radius = ("radius" in p) ? p.radius : 15;
+    if (radius > 20) radius = 20;
     local max_results = ("max_results" in p) ? p.max_results : 10;
     if (max_results <= 0) return { success = true, result = [] };
     local loc = GSTown.GetLocation(town_id);
@@ -1379,6 +1386,7 @@ class ClaudeMCP extends GSController {
     }
 
     local radius = ("radius" in p) ? p.radius : 15;
+    if (radius > 20) radius = 20;
     local max_results = ("max_results" in p) ? p.max_results : 5;
     if (max_results <= 0) return { success = true, result = [] };
     local loc = GSTown.GetLocation(town_id);
@@ -1438,6 +1446,7 @@ class ClaudeMCP extends GSController {
     }
 
     local radius = ("radius" in p) ? p.radius : 15;
+    if (radius > 20) radius = 20;
     local max_results = ("max_results" in p) ? p.max_results : 10;
     if (max_results <= 0) return { success = true, result = [] };
     local loc = GSTown.GetLocation(town_id);
@@ -1536,6 +1545,7 @@ class ClaudeMCP extends GSController {
     local plat_len = ("platform_length" in p) ? p.platform_length : 5;
     local num_plat = ("num_platforms" in p) ? p.num_platforms : 2;
     local max_dist = ("max_distance" in p) ? p.max_distance : 20;
+    if (max_dist > 20) max_dist = 20;
     local max_results = ("max_results" in p) ? p.max_results : 5;
 
     local loc = GSTown.GetLocation(town_id);
@@ -1566,7 +1576,7 @@ class ClaudeMCP extends GSController {
                   GSTile.GetMaxHeight(t) != base_h || GSTile.GetSlope(t) != 0) {
                 ok = false;
               }
-              ops++;
+              if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
             }
           }
 
@@ -2699,18 +2709,14 @@ class ClaudeMCP extends GSController {
     local company_mode = GSCompanyMode(p.company_id);
     local veh_list = GSVehicleList();
     local veh_ids = [];
-    local ops = 0;
-    foreach (vid, _ in veh_list) {
-      veh_ids.append(vid);
-      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
-    }
+    foreach (vid, _ in veh_list) veh_ids.append(vid);
     this.Sleep(1);
 
     local running = 0;
     local stopped = 0;
     local loading = 0;
     local broken = 0;
-    ops = 0;
+    local ops = 0;
     for (local i = 0; i < veh_ids.len(); i++) {
       local state = GSVehicle.GetState(veh_ids[i]);
       switch (state) {
@@ -2725,11 +2731,7 @@ class ClaudeMCP extends GSController {
 
     local stn_list = GSStationList(GSStation.STATION_ANY);
     local stn_ids = [];
-    ops = 0;
-    foreach (sid, _ in stn_list) {
-      stn_ids.append(sid);
-      if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
-    }
+    foreach (sid, _ in stn_list) stn_ids.append(sid);
 
     return { success = true, result = {
       vehicle_count = veh_ids.len(),
@@ -2756,9 +2758,11 @@ class ClaudeMCP extends GSController {
     local checked = 0;
     local max_check = 2000;
     local ops = 0;
+    local queue_idx = 0;
 
-    while (queue.len() > 0 && checked < max_check) {
-      local tile = queue.remove(0);
+    while (queue_idx < queue.len() && checked < max_check) {
+      local tile = queue[queue_idx];
+      queue_idx++;
       checked++;
 
       if (tile == to_tile) { found = true; break; }
@@ -3108,11 +3112,7 @@ class ClaudeMCP extends GSController {
     if (engine_id < 0) {
       local eng_list = GSEngineList(GSVehicle.VT_ROAD);
       local engs = [];
-      local eng_ops = 0;
-      foreach (eng, _ in eng_list) {
-        engs.append(eng);
-        if (++eng_ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
-      }
+      foreach (eng, _ in eng_list) engs.append(eng);
       this.Sleep(1);
       local search_ops = 0;
       for (local i = 0; i < engs.len(); i++) {
@@ -3411,6 +3411,7 @@ class ClaudeMCP extends GSController {
     local cx = p.x;
     local cy = p.y;
     local radius = ("radius" in p) ? p.radius : 3;
+    if (radius > 20) radius = 20;
     local planted = 0;
     local ops = 0;
 
@@ -3545,6 +3546,7 @@ class ClaudeMCP extends GSController {
     local y = p.y;
     local action = ("action" in p) ? p.action : "level";
     local radius = ("radius" in p) ? p.radius : 0;
+    if (radius > 20) radius = 20;
     local tile = GSMap.GetTileIndex(x, y);
 
     if (!GSMap.IsValidTile(tile)) return { success = false, error = "Invalid tile" };
@@ -3579,15 +3581,23 @@ class ClaudeMCP extends GSController {
           local t = GSMap.GetTileIndex(x + dx, y + dy);
           if (!GSMap.IsValidTile(t)) continue;
           local h = GSTile.GetMaxHeight(t);
-          while (h < target_h) {
+          local attempts = 0;
+          while (h < target_h && attempts < 10) {
             if (!GSTile.RaiseTile(t, GSTile.GetSlope(t))) break;
-            h = GSTile.GetMaxHeight(t);
+            local new_h = GSTile.GetMaxHeight(t);
+            if (new_h == h) break; // Height didn't change — stop
+            h = new_h;
             modified++;
+            attempts++;
           }
-          while (h > target_h) {
+          attempts = 0;
+          while (h > target_h && attempts < 10) {
             if (!GSTile.LowerTile(t, GSTile.GetSlope(t))) break;
-            h = GSTile.GetMaxHeight(t);
+            local new_h = GSTile.GetMaxHeight(t);
+            if (new_h == h) break; // Height didn't change — stop
+            h = new_h;
             modified++;
+            attempts++;
           }
           if (++ops % this.YIELD_INTERVAL == 0) this.Sleep(1);
         }
